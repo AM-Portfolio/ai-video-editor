@@ -33,14 +33,24 @@ FACE_CONFIDENCE = config.get("face_confidence", 0.5)
 options = vision.FaceDetectorOptions(base_options=base_options, min_detection_confidence=FACE_CONFIDENCE)
 detector = vision.FaceDetector.create_from_options(options)
 
-def has_face(video_path):
+def has_face(video_path, num_samples=10):
+    """Check if face is present by sampling frames evenly throughout the video"""
     cap = cv2.VideoCapture(video_path)
-    face_found = False
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
-    while cap.isOpened():
+    if total_frames == 0:
+        cap.release()
+        return False
+    
+    # Calculate frame indices to sample evenly throughout the video
+    sample_indices = [int(i * total_frames / num_samples) for i in range(num_samples)]
+    
+    face_found = False
+    for frame_idx in sample_indices:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
         ret, frame = cap.read()
         if not ret:
-            break
+            continue
 
         # Convert to RGB and mp.Image
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -56,41 +66,59 @@ def has_face(video_path):
     return face_found
 
 
-print(f"👤 Scanning {BASE_DIR} for face presence...")
+import concurrent.futures
 
-for clip in os.listdir(BASE_DIR):
-    clip_dir = os.path.join(BASE_DIR, clip)
-    if not os.path.isdir(clip_dir):
-        continue
-
-    # We only care about chunks that passed Step 5 (speech), which are in 'keep/speech'
-    keep_dir = os.path.join(clip_dir, "keep")
-    speech_dir = os.path.join(keep_dir, "speech")
+def process_file(args):
+    path, face_dir, no_face_dir = args
+    filename = os.path.basename(path)
     
-    if not os.path.isdir(speech_dir):
-        continue
-    
-    face_dir = os.path.join(speech_dir, "face")
-    no_face_dir = os.path.join(speech_dir, "no_face")
+    if not os.path.exists(path):
+        return
 
-    os.makedirs(face_dir, exist_ok=True)
-    os.makedirs(no_face_dir, exist_ok=True)
-    
-    print(f"   Processing clip folder: {clip}")
+    try:
+        is_face = has_face(path)
+        target_dir = face_dir if is_face else no_face_dir
+        status = "👤 FACE" if is_face else "🚫 NO FACE"
+        
+        print(f"   - {filename} -> {status}")
+        shutil.move(path, os.path.join(target_dir, filename))
+    except Exception as e:
+        print(f"❌ Error processing {filename}: {e}")
 
-    for file in os.listdir(speech_dir):
-        if not file.endswith(".mp4"):
+if __name__ == "__main__":
+    print(f"👤 Scanning {BASE_DIR} for face presence...")
+    
+    max_workers = max(1, os.cpu_count() - 2)
+    
+    for clip in os.listdir(BASE_DIR):
+        clip_dir = os.path.join(BASE_DIR, clip)
+        if not os.path.isdir(clip_dir):
             continue
 
-        src = os.path.join(speech_dir, file)
+        keep_dir = os.path.join(clip_dir, "keep")
+        speech_dir = os.path.join(keep_dir, "speech")
         
-        # Determine if we keep (face) or drop (no_face)
-        try:
-            is_face = has_face(src)
-            target_dir = face_dir if is_face else no_face_dir
-            
-            print(f"   - {file} -> {'👤 FACE' if is_face else '🚫 NO FACE'}")
-            
-            shutil.move(src, os.path.join(target_dir, file))
-        except Exception as e:
-            print(f"❌ Error processing/moving {file}: {e}")
+        if not os.path.isdir(speech_dir):
+            continue
+        
+        face_dir = os.path.join(speech_dir, "face")
+        no_face_dir = os.path.join(speech_dir, "no_face")
+
+        os.makedirs(face_dir, exist_ok=True)
+        os.makedirs(no_face_dir, exist_ok=True)
+        
+        print(f"   Processing clip folder: {clip}")
+
+        tasks = []
+        for file in os.listdir(speech_dir):
+            if not file.endswith(".mp4"):
+                continue
+
+            src = os.path.join(speech_dir, file)
+            if os.path.exists(src):
+                tasks.append((src, face_dir, no_face_dir))
+        
+        if tasks:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+                executor.map(process_file, tasks)
+

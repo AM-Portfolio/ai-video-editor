@@ -1,6 +1,18 @@
 {
-    "chunk_seconds": 5,
+    "_comment": "Global settings for the AI Video Pipeline",
+    "debug_mode": true,
+    "min_chunk_duration": 1.5,
+    "max_chunk_duration": 15.0,
+    "silence_db": "-30dB",
+    "silence_duration": 0.4,
     "motion_threshold": 30000,
-    "silence_threshold": 0.01,
-    "face_confidence": 0.5
+    "face_confidence": 0.08,
+    "crossfade_duration": 0.1,
+    "privacy_blur": {
+        "enabled": false,
+        "mode": "face_blur",
+        "blur_strength": 25,
+        "exclude_main_face": true,
+        "regions": []
+    }
 }

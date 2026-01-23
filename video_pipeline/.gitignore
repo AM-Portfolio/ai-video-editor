@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+venv/
+ENV/
+
+# Video files (too large for git)
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.webm
+
+# Processing directories (generated content)
+processing/
+output_clips/
+input_clips/*.mp4
+temp_normalized/
+
+# Logs
+logs/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Model files (can be downloaded)
+# detector.tflite  # Keep this for now, it's small (229KB)
