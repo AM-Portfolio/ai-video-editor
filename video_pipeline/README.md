@@ -1,6 +1,21 @@
-# 🎥 AI Video Editing Pipeline
+# 🎥 AI-Powered Video Editor Pipeline
 
-A smart, automated pipeline that takes raw video footage and turns it into a polished, jump-cut edited video with intelligent audio normalization and crossfades.
+**An intelligent, automated video editing engine that uses Computer Vision and Audio AI to transform raw footage into polished content.**
+
+This project employs a multi-stage AI pipeline to autonomously detect the best moments in your video. By combining **Silero VAD (Neural Speech Detection)** and **MediaPipe (Face Analysis)**, it eliminates silence, removes bad takes, and ensures the subject is always in focus—all without manual intervention.
+
+## 🧠 Key AI Technologies
+
+### 1. Neural Voice Activity Detection (VAD)
+Uses **Silero VAD**, a pre-trained deep learning model, to distinguish human speech from background noise, breathing, and silence with high precision. Unlike simple decibel-based cutting, this understands *voice*.
+
+### 2. Computer Vision Face Tracking
+Leverages **Google MediaPipe** to analyze every frame. The pipeline ensures:
+*   **Presence**: The speaker is actually visible in the frame.
+*   **Engagement**: Discards clips where the subject turns away or is obstructed.
+
+### 3. Intelligent Privacy & Focus
+Implements heuristic AI to identify the **Active Speaker** based on frame composition and size. Automatically detects and blurs bystander faces to maintain privacy and keep viewer attention on the main subject.
 
 ## 🚀 Quick Start
 

@@ -1,6 +1,6 @@
 {
     "_comment": "Global settings for the AI Video Pipeline",
-    "debug_mode": true,
+    "debug_mode": false,
     "min_chunk_duration": 1.5,
     "max_chunk_duration": 15.0,
     "silence_db": "-30dB",

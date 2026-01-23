@@ -1,6 +1,0 @@
-👀 Watching for new video clips...
-Traceback (most recent call last):
-  File "/Users/munishm/Documents/ai-editor/video_pipeline/watcher.py", line 13, in <module>
-    for file in os.listdir(INPUT_DIR):
-                ^^^^^^^^^^^^^^^^^^^^^
-FileNotFoundError: [Errno 2] No such file or directory: 'input_clips'

@@ -2,6 +2,8 @@ import subprocess
 import sys
 import time
 import os
+import shutil
+import re
 
 STEPS = [
     ("✂️  Splitting Video", "smart_splitter.py"),
@@ -13,9 +15,6 @@ STEPS = [
     ("🎞️  Final Merge", "merge_final.py"),
 ]
 
-import shutil
-import re
-
 INPUT_CLIPS_DIR = "input_clips"
 PROCESSING_DIR = "processing"
 
@@ -24,13 +23,20 @@ def sanitize_filename(name):
     name = re.sub(r'[^\w\.-]', '_', name)
     return name
 
-def ingest_files():
-    print(f"\n{'='*50}")
-    print(f"   📥 Ingesting Files")
-    print(f"{'='*50}\n")
+def ingest_files(logger_callback=None):
+    if logger_callback:
+        logger_callback(f"\n{'='*50}")
+        logger_callback(f"   📥 Ingesting Files")
+        logger_callback(f"{'='*50}\n")
+    else:
+        print(f"\n{'='*50}")
+        print(f"   📥 Ingesting Files")
+        print(f"{'='*50}\n")
     
     if not os.path.exists(INPUT_CLIPS_DIR):
-        print(f"⚠️  {INPUT_CLIPS_DIR} does not exist.")
+        msg = f"⚠️  {INPUT_CLIPS_DIR} does not exist."
+        print(msg)
+        if logger_callback: logger_callback(msg)
         return False
         
     os.makedirs(PROCESSING_DIR, exist_ok=True)
@@ -50,30 +56,44 @@ def ingest_files():
         previous_run_dir = os.path.join(PROCESSING_DIR, video_stem)
         
         if os.path.exists(previous_run_dir):
-            print(f"   🧹 Clearing previous data for: {clean_name}")
+            msg = f"   🧹 Clearing previous data for: {clean_name}"
+            print(msg)
+            if logger_callback: logger_callback(msg)
             shutil.rmtree(previous_run_dir)
             
         # Also remove the file itself if it exists (overwrite)
         if os.path.exists(dst):
             os.remove(dst)
 
-        print(f"   -> Moving {filename} to {PROCESSING_DIR}/{clean_name}")
+        msg = f"   -> Moving {filename} to {PROCESSING_DIR}/{clean_name}"
+        print(msg)
+        if logger_callback: logger_callback(msg)
         shutil.move(src, dst)
         moved_count += 1
         
     if moved_count == 0:
         # Check if processing already has files (maybe re-running?)
         if len([f for f in os.listdir(PROCESSING_DIR) if f.endswith(".mp4") or os.path.isdir(os.path.join(PROCESSING_DIR, f))]) > 0:
-             print("   ℹ️  No new input files, but 'processing' folder is not empty. Continue.")
+             msg = "   ℹ️  No new input files, but 'processing' folder is not empty. Continue."
+             print(msg)
+             if logger_callback: logger_callback(msg)
              return True
         else:
-             print("   ⚠️  No .mp4 files found in input_clips/ and processing/ is empty.")
+             msg = "   ⚠️  No .mp4 files found in input_clips/ and processing/ is empty."
+             print(msg)
+             if logger_callback: logger_callback(msg)
              return False
              
-    print(f"   ✅ Moved {moved_count} files for processing.")
+    msg = f"   ✅ Moved {moved_count} files for processing."
+    print(msg)
+    if logger_callback: logger_callback(msg)
     return True
 
-def run_step(name, script):
+def run_step(name, script, logger_callback=None):
+    if logger_callback:
+        logger_callback(f"\n{'='*50}")
+        logger_callback(f"   {name}")
+        logger_callback(f"{'='*50}\n")
     print(f"\n{'='*50}")
     print(f"   {name}")
     print(f"{'='*50}\n")
@@ -83,46 +103,76 @@ def run_step(name, script):
     try:
         # Check if script exists
         if not os.path.exists(script):
-            print(f"❌ Script not found: {script}")
+            msg = f"❌ Script not found: {script}"
+            print(msg)
+            if logger_callback: logger_callback(msg)
             return False
 
-        # Run the script
-        result = subprocess.run(
+        # Run the script with Popen for real-time output capturing
+        process = subprocess.Popen(
             [sys.executable, script],
-            capture_output=False,  # Let it print to stdout directly
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            check=True
+            bufsize=1,
+            cwd=os.path.dirname(os.path.abspath(__file__))
         )
         
-        duration = time.time() - start_time
-        print(f"\n✅ {script} finished in {duration:.2f}s")
-        return True
+        while True:
+            line = process.stdout.readline()
+            if not line and process.poll() is not None:
+                break
+            if line:
+                line = line.strip()
+                print(line)
+                if logger_callback:
+                    logger_callback(line)
+
+        if process.returncode == 0:
+            duration = time.time() - start_time
+            msg = f"\n✅ {script} finished in {duration:.2f}s"
+            print(msg)
+            if logger_callback: logger_callback(msg)
+            return True
+        else:
+            msg = f"\n❌ Step failed: {script}\nExit code: {process.returncode}"
+            print(msg)
+            if logger_callback: logger_callback(msg)
+            return False
         
-    except subprocess.CalledProcessError as e:
-        print(f"\n❌ Step failed: {script}")
-        print(f"Exit code: {e.returncode}")
-        return False
     except Exception as e:
-        print(f"\n❌ Unexpected error running {script}: {e}")
+        msg = f"\n❌ Unexpected error running {script}: {e}"
+        print(msg)
+        if logger_callback: logger_callback(msg)
         return False
 
-def main():
-    print("🚀 Starting AI Video Pipeline...")
+def main(logger_callback=None):
+    msg = "🚀 Starting AI Video Pipeline..."
+    print(msg)
+    if logger_callback: logger_callback(msg)
+    
     total_start = time.time()
     
     # Step 0: Ingest
-    if not ingest_files():
-        print("\n🛑 Nothing to process. Exiting.")
-        sys.exit(0)
+    if not ingest_files(logger_callback):
+        msg = "\n🛑 Nothing to process. Exiting."
+        print(msg)
+        if logger_callback: logger_callback(msg)
+        # return instead of sys.exit so UI doesn't crash
+        return
     
     for name, script in STEPS:
-        success = run_step(name, script)
+        success = run_step(name, script, logger_callback)
         if not success:
-            print("\n🛑 Pipeline aborted due to error.")
-            sys.exit(1)
+            msg = "\n🛑 Pipeline aborted due to error."
+            print(msg)
+            if logger_callback: logger_callback(msg)
+            return  # Return to stop pipeline but keep UI alive
             
     total_duration = time.time() - total_start
-    print(f"\n✨ Pipeline completed successfully in {total_duration:.2f}s")
+    msg = f"\n✨ Pipeline completed successfully in {total_duration:.2f}s"
+    print(msg)
+    if logger_callback: logger_callback(msg)
 
 if __name__ == "__main__":
     main()
