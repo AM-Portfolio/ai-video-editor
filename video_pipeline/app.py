@@ -86,7 +86,11 @@ def main():
         # Save uploaded file to input_clips
         file_path = os.path.join(INPUT_CLIPS_DIR, uploaded_file.name)
         with open(file_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+             while True:
+                 chunk = uploaded_file.read(4 * 1024 * 1024) # 4MB chunks
+                 if not chunk:
+                     break
+                 f.write(chunk)
         st.success(f"✅ Uploaded: {uploaded_file.name}")
         
         if st.button("🚀 Run AI Pipeline"):
