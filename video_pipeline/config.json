@@ -1,0 +1,6 @@
+{
+    "chunk_seconds": 5,
+    "motion_threshold": 30000,
+    "silence_threshold": 0.01,
+    "face_confidence": 0.5
+}

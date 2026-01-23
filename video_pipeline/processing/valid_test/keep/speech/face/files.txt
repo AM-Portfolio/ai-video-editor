@@ -1,0 +1,2 @@
+file '/Users/munishm/Documents/ai-editor/video_pipeline/processing/valid_test/keep/speech/face/chunk_0000.mp4'
+file '/Users/munishm/Documents/ai-editor/video_pipeline/processing/valid_test/keep/speech/face/chunk_0001.mp4'
