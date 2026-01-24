@@ -2,7 +2,7 @@ import json
 import os
 import time
 
-STATE_FILE = "pipeline_state.json"
+STATE_FILE = "data/pipeline_state.json"
 
 def init_state(chunks):
     """
