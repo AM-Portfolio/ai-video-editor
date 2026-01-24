@@ -17,8 +17,14 @@ st.set_page_config(
 
 # Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+from core.scoring import ScoreKeeper
+from core import state as state_manager
+from core import config as cfg_loader
+
+# Config Path Adaptation
+CONFIG_PATH = os.path.join(BASE_DIR, "data", "config.json")
+KEYWORDS_PATH = os.path.join(BASE_DIR, "data", "keywords_active.json")
 INPUT_CLIPS_DIR = os.path.join(BASE_DIR, "input_clips")
-CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 FINAL_OUTPUT_DIR = os.path.join(BASE_DIR, "output_clips")
 
 # Ensure directories exist

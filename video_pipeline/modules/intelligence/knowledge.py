@@ -2,10 +2,15 @@ import json
 import os
 import requests
 
+import sys
+# Add project root to sys.path for modular imports
+sys.path.append(os.getcwd())
+
+from core import config as cfg_loader
+
 class RegexOptimizer:
-    def __init__(self, config_path="config.json", keywords_path="keywords_active.json"):
-        with open(config_path) as f:
-            self.config = json.load(f)
+    def __init__(self, config_path=None, keywords_path="data/keywords_active.json"):
+        self.config = cfg_loader.load_config(config_path)
         self.keywords_path = keywords_path
         self.log_path = "processing/auto_learning_log.json"
         self.tags_path = "processing/semantic_tags.json"

@@ -1,13 +1,18 @@
 import json
 import os
-from decision_log import DecisionLog
-from score_keeper import ScoreKeeper
+import sys
+# Add project root to sys.path for modular imports
+sys.path.append(os.getcwd())
+
+from core.logging import DecisionLog
+from core.scoring import ScoreKeeper
+from core import config as cfg_loader
 
 class Decider:
-    def __init__(self, config_path="config.json"):
+    def __init__(self, config_path=None):
         self.logger = DecisionLog()
         self.scorer = ScoreKeeper()
-        self.config = self._load_config(config_path)
+        self.config = cfg_loader.load_config(config_path)
         
     def _load_config(self, path):
         try:

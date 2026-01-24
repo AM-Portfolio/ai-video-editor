@@ -32,6 +32,12 @@ def normalize_chunk(input_path, output_path):
     return result.returncode == 0
 
 def merge_with_demuxer(chunk_paths, output_path):
+    import sys
+    # Add project root to sys.path for modular imports
+    sys.path.append(os.getcwd())
+
+    from core import config as cfg_loader
+    config = cfg_loader.load_config()
     list_file = os.path.join(TEMP_DIR, "file_list.txt")
     with open(list_file, "w") as f:
         for p in chunk_paths:

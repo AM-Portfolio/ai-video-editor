@@ -4,23 +4,23 @@ import time
 import os
 import shutil
 import re
-import state_manager
+from core import state as state_manager
 
 STEPS = [
-    ("✂️  Splitting Video", "smart_splitter.py"),
-    ("🏃 Motion Scoring", "motion_filter.py"),
-    ("🗣️  VAD (Voice) Scoring", "vad_filter.py"),
-    ("👤 Face Detection Scoring", "face_filter.py"),
-    ("🔒 Privacy Blur", "privacy_filter.py"),
-    ("🏷️  Semantic Tagging", "semantic_tagger.py"),
-    ("🧠 The Decider", "decider.py"),
-    ("📊 Decision Analytics", "decision_analytics.py"),
-    ("🗺️  Action Planner", "action_planner.py"),
-    ("🚜 Action Executor", "action_executor.py"),
-    ("📝 Run Explainer", "run_explainer.py"),
-    ("🕵️  Debug Visualization", "render_debug.py"),
-    ("🛠️  Knowledge Update", "regex_optimizer.py"),
-    ("🎞️  Final Merge", "merge_final.py"),
+    ("✂️  Splitting Video", "modules/raw/splitter.py"),
+    ("🏃 Motion Scoring", "modules/perception/motion.py"),
+    ("🗣️  VAD (Voice) Scoring", "modules/perception/voice.py"),
+    ("👤 Face Detection Scoring", "modules/perception/faces.py"),
+    ("🔒 Privacy Blur", "modules/safety/privacy.py"),
+    ("🏷️  Semantic Tagging", "modules/intelligence/tagging.py"),
+    ("🧠 The Decider", "modules/intelligence/decider.py"),
+    ("📊 Decision Analytics", "modules/report/analytics.py"),
+    ("🗺️  Action Planner", "modules/report/planner.py"),
+    ("🚜 Action Executor", "modules/report/executor.py"),
+    ("📝 Run Explainer", "modules/report/explainer.py"),
+    ("🕵️  Debug Visualization", "modules/report/debug.py"),
+    ("🛠️  Knowledge Update", "modules/intelligence/knowledge.py"),
+    ("🎞️  Final Merge", "modules/raw/merger.py"),
 ]
 
 INPUT_CLIPS_DIR = "input_clips"

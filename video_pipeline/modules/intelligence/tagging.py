@@ -3,7 +3,11 @@ import os
 import shutil
 import warnings
 import sys
-import state_manager
+# Add project root to sys.path for modular imports
+sys.path.append(os.getcwd())
+
+import core.state as state_manager
+from core import config as cfg_loader
 
 # Suppress FP16 warning if CPU
 warnings.filterwarnings("ignore")
@@ -17,11 +21,11 @@ except ImportError:
     sys.exit(1)
 
 class SemanticTagger:
-    def __init__(self, config_path="config.json"):
-        self.config = self._load_config(config_path)
+    def __init__(self, config_path=None):
+        self.config = cfg_loader.load_config(config_path)
         self.scores_path = "processing/scores.json"
         self.output_path = "processing/semantic_tags.json"
-        self.keywords_path = "keywords_active.json"
+        self.keywords_path = "data/keywords_active.json"
         self.keywords = self._load_keywords()
         
         # Configuration for "Pre-Filtering"

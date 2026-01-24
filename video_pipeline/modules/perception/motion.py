@@ -4,17 +4,17 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 import cv2
 import os
 import shutil
-import json
+# Add project root to sys.path for modular imports
+sys.path.append(os.getcwd())
 
-with open("config.json") as f:
-    config = json.load(f)
+from core import config as cfg_loader
+from core.logging import DecisionLog
+from core.scoring import ScoreKeeper
+from core import state as state_manager
 
+config = cfg_loader.load_config()
 BASE_DIR = "processing"
 MOTION_THRESHOLD = config.get("motion_threshold", 30000)
-
-from decision_log import DecisionLog
-from score_keeper import ScoreKeeper
-import state_manager
 
 # Initialize loggers
 logger = DecisionLog()

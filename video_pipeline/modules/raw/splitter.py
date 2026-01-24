@@ -11,12 +11,14 @@ import shutil
 import json
 import state_manager
 
-# Try to load config if available
-try:
-    with open("config.json") as f:
-        config = json.load(f)
-except FileNotFoundError:
-    config = {}
+import sys
+# Add project root to sys.path for modular imports
+sys.path.append(os.getcwd())
+
+from core import config as cfg_loader
+from core import state as state_manager
+
+config = cfg_loader.load_config()
 
 INPUT_DIR = "processing"
 # Use config values or safe defaults

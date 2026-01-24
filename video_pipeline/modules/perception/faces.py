@@ -7,13 +7,14 @@ from mediapipe.tasks.python import vision
 import cv2
 import os
 import shutil
-import json
+# Add project root to sys.path for modular imports
+sys.path.append(os.getcwd())
 
-with open("config.json") as f:
-    config = json.load(f)
+from core import config as cfg_loader
+config = cfg_loader.load_config()
 
 BASE_DIR = "processing"
-MODEL_PATH = "detector.tflite"
+MODEL_PATH = "data/detector.tflite"
 
 print("🧠 Loading Face Detection Model (Tasks API)...")
 
@@ -36,9 +37,9 @@ FACE_CONFIDENCE = config.get("face_confidence", 0.5)
 options = vision.FaceDetectorOptions(base_options=base_options, min_detection_confidence=FACE_CONFIDENCE)
 detector = vision.FaceDetector.create_from_options(options)
 
-from decision_log import DecisionLog
-from score_keeper import ScoreKeeper
-import state_manager
+from core.logging import DecisionLog
+from core.scoring import ScoreKeeper
+from core import state as state_manager
 
 logger = DecisionLog()
 scorer = ScoreKeeper()

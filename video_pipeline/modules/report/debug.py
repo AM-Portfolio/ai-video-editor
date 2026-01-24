@@ -2,10 +2,12 @@ import sys
 import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 import os
-import subprocess
-import shutil
-import json
+import sys
+# Add project root to sys.path for modular imports
+sys.path.append(os.getcwd())
 
+from core.logging import DecisionLog
+from core.scoring import ScoreKeeper
 BASE_DIR = "processing"
 OUTPUT_DIR = "output_clips"
 FINAL_NAME = "debug_preview.mp4"

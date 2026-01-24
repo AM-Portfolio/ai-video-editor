@@ -5,16 +5,12 @@ import torch
 import torchaudio
 import os
 import shutil
-import json
+# Add project root to sys.path for modular imports
+sys.path.append(os.getcwd())
 
-# Try to load config if available, though VAD model handles threshold mostly internally
-# We can use a config value for min_speech_duration or similar if we wanted, 
-# but for now we'll stick to the model's defaults or hardcoded logic as per plan.
-try:
-    with open("config.json") as f:
-        config = json.load(f)
-except FileNotFoundError:
-    config = {}
+from core import config as cfg_loader
+config = cfg_loader.load_config()
+BASE_DIR = "processing"
 
 BASE_DIR = "processing"
 
@@ -33,9 +29,9 @@ import subprocess
 import tempfile
 import torch
 
-from decision_log import DecisionLog
-from score_keeper import ScoreKeeper
-import state_manager
+from core.logging import DecisionLog
+from core.scoring import ScoreKeeper
+from core import state as state_manager
 
 logger = DecisionLog()
 scorer = ScoreKeeper()

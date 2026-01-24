@@ -1,7 +1,12 @@
 import json
 import os
+import sys
+# Add project root to sys.path for modular imports
+sys.path.append(os.getcwd())
 import shutil
 import datetime
+
+from core.logging import DecisionLog
 import fcntl
 
 class ActionExecutor:

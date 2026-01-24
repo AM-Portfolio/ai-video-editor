@@ -16,16 +16,21 @@ import json
 import numpy as np
 import re
 import easyocr
-import state_manager
+import sys
+# Add project root to sys.path for modular imports
+sys.path.append(os.getcwd())
+
+import core.state as state_manager
+from core import config as cfg_loader
+from core.logging import DecisionLog
 
 # Initialize OCR Reader (English)
 reader = easyocr.Reader(['en'], gpu=False) # GPU False for better terminal stability in this environment
 
-with open("config.json") as f:
-    config = json.load(f)
+config = cfg_loader.load_config()
 
 BASE_DIR = "processing"
-MODEL_PATH = "detector.tflite"
+MODEL_PATH = "data/detector.tflite"
 
 # Privacy config with defaults
 privacy_config = config.get("privacy_blur", {})
@@ -277,7 +282,6 @@ def process_video_text_blur(input_path, output_path):
     os.remove(temp_path)
     return True
 
-from decision_log import DecisionLog
 logger = DecisionLog()
 
 def process_chunk(input_path, output_path):

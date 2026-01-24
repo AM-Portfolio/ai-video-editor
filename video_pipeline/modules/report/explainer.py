@@ -1,6 +1,12 @@
 import json
 import os
+import sys
 from collections import Counter
+
+# Add project root to sys.path for modular imports
+sys.path.append(os.getcwd())
+
+from core.logging import DecisionLog
 
 class RunExplainer:
     def __init__(self):
