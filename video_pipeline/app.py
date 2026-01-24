@@ -86,6 +86,11 @@ def main():
     s_funny = st.sidebar.slider("Funny Influence", 0.0, 1.0, float(config.get("semantic_policy", {}).get("weights", {}).get("funny", 1.0)))
     s_general = st.sidebar.slider("General Content Influence", 0.0, 1.0, float(config.get("semantic_policy", {}).get("weights", {}).get("general", 0.9)))
 
+    # Learning Policy
+    st.sidebar.divider()
+    st.sidebar.subheader("🤖 Intelligence")
+    self_learning = st.sidebar.checkbox("Enable Self-Learning", config.get("self_learning", True), help="Automatically improve regex keywords based on LLM output after each run.")
+
     # Save Config Button
     if st.sidebar.button("💾 Save Settings"):
         config["silence_db"] = silence_db
@@ -104,6 +109,8 @@ def main():
         # New Semantic Weights
         if "semantic_policy" not in config: config["semantic_policy"] = {}
         config["semantic_policy"]["weights"] = {"product_related": s_product, "funny": s_funny, "general": s_general}
+        
+        config["self_learning"] = self_learning
 
         save_config(config)
         st.sidebar.success("Settings saved!")
@@ -129,7 +136,7 @@ def main():
                 with open(tags_path, 'r') as f: tags_data = json.load(f)
             except: pass
 
-        tabs = st.tabs(["🚀 Product Highlights", "😂 Funny Moments", "🌍 General Content", "🏗️ Architecture Map"])
+        tabs = st.tabs(["🚀 Product Highlights", "😂 Funny Moments", "🌍 General Content", "🏗️ Architecture Map", "📈 Learning Log"])
         
         for idx, category in enumerate(CATEGORIES):
             with tabs[idx]:
@@ -159,6 +166,25 @@ def main():
                         st.write("No clips selected for this category.")
                 else:
                     st.write(f"Category folder not created yet.")
+
+        with tabs[4]:
+            st.subheader("📈 Autonomous Learning Log")
+            st.markdown("The AI automatically extracts technical keywords from LLM results to speed up future runs. Below are the keywords recently vetted and added to the core logic.")
+            
+            log_path = os.path.join(BASE_DIR, "processing", "auto_learning_log.json")
+            
+            if os.path.exists(log_path):
+                with open(log_path, 'r') as f: updates = json.load(f)
+                
+                if not updates:
+                    st.info("No autonomous updates in the latest run.")
+                else:
+                    for i, u in enumerate(updates):
+                        with st.container(border=True):
+                            st.write(f"✅ **Auto-Added**: `{u.get('keyword')}` ➡️ `{u.get('category').upper()}`")
+                            st.caption(f"Reason: High-Signal Match | Source: {u.get('source')}")
+            else:
+                st.info("Learning log will appear after the next optimized run.")
 
         with tabs[3]:
             st.subheader("System Architecture")

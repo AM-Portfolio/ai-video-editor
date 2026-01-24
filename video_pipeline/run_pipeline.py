@@ -19,6 +19,7 @@ STEPS = [
     ("🚜 Action Executor", "action_executor.py"),
     ("📝 Run Explainer", "run_explainer.py"),
     ("🕵️  Debug Visualization", "render_debug.py"),
+    ("🛠️  Knowledge Update", "regex_optimizer.py"),
     ("🎞️  Final Merge", "merge_final.py"),
 ]
 
@@ -74,9 +75,15 @@ def ingest_files(logger_callback=None):
 
         # Logic to clear previous run data for this specific file
         video_stem = os.path.splitext(clean_name)[0]
+        video_filename = filename
         previous_run_dir = os.path.join(PROCESSING_DIR, video_stem)
         
-        if os.path.exists(previous_run_dir):
+        # RESUME: If splitting is already done according to state, DON'T clear.
+        if state_manager.is_step_done(video_filename, "✂️  Splitting Video"):
+             msg = f"   🛡️  Resuming existing data for: {clean_name}"
+             print(msg)
+             if logger_callback: logger_callback(msg)
+        elif os.path.exists(previous_run_dir):
             msg = f"   🧹 Clearing previous data for: {clean_name}"
             print(msg)
             if logger_callback: logger_callback(msg)
@@ -130,6 +137,23 @@ def run_step(name, script, logger_callback=None):
     
     start_time = time.time()
     
+    # GLOBAL STEP RESUME CHECK
+    # If all chunks in state are already COMPLETED for this step, skip the whole script
+    state = state_manager.load_state()
+    active_chunks = state.get("chunks", {})
+    if active_chunks:
+        all_done = True
+        for chunk_id, info in active_chunks.items():
+            if not state_manager.is_step_done(chunk_id, name):
+                all_done = False
+                break
+        
+        if all_done:
+            msg = f"   ⏩ Global Step Resume: '{name}' already finished for all chunks."
+            print(msg)
+            if logger_callback: logger_callback(msg)
+            return True
+
     try:
         if not os.path.exists(script):
             msg = f"❌ Script not found: {script}"

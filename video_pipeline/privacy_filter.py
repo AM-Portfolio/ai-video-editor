@@ -16,6 +16,7 @@ import json
 import numpy as np
 import re
 import easyocr
+import state_manager
 
 # Initialize OCR Reader (English)
 reader = easyocr.Reader(['en'], gpu=False) # GPU False for better terminal stability in this environment
@@ -281,6 +282,13 @@ logger = DecisionLog()
 
 def process_chunk(input_path, output_path):
     """Process a single video chunk based on blur mode"""
+    filename = os.path.basename(input_path)
+    step_name = "🔒 Privacy Blur"
+    
+    if state_manager.is_step_done(filename, step_name):
+        print(f"   ⏩ {filename} -> Resumed (Already Blurred)")
+        return True
+
     result = False
     metric_type = "none"
     
@@ -312,6 +320,10 @@ def process_chunk(input_path, output_path):
             "processed": result
         }
     )
+    
+    if result:
+        state_manager.mark_step_done(filename, step_name)
+        
     return result
 
 if __name__ == "__main__":

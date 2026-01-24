@@ -3,53 +3,11 @@
         "2026-01-23_18-12-56.mp4": {
             "status": "PENDING",
             "step": "Init",
-            "message": "Waiting to start..."
-        },
-        "chunk_003.mp4": {
-            "status": "PROCESSING",
-            "step": "\ud83c\udf9e\ufe0f  Final Merge",
-            "message": "\u2705 Final video created: output_clips\\final_chunk_003.mp4"
-        },
-        "chunk_005.mp4": {
-            "status": "PROCESSING",
-            "step": "\ud83c\udf9e\ufe0f  Final Merge",
-            "message": "\u2705 Final video created: output_clips\\final_chunk_005.mp4"
-        },
-        "chunk_002.mp4": {
-            "status": "PROCESSING",
-            "step": "\ud83c\udf9e\ufe0f  Final Merge",
-            "message": "\u2705 Final video created: output_clips\\final_chunk_002.mp4"
-        },
-        "chunk_004.mp4": {
-            "status": "PROCESSING",
-            "step": "\ud83c\udf9e\ufe0f  Final Merge",
-            "message": "\u2705 Final video created: output_clips\\final_chunk_004.mp4"
-        },
-        "chunk_001.mp4": {
-            "status": "PROCESSING",
-            "step": "\ud83c\udf9e\ufe0f  Final Merge",
-            "message": "\u2705 Final video created: output_clips\\final_chunk_001.mp4"
-        },
-        "chunk_008.mp4": {
-            "status": "PROCESSING",
-            "step": "\ud83c\udf9e\ufe0f  Final Merge",
-            "message": "\u26a0\ufe0f Not enough chunks to merge for chunk_008 (found 1)"
-        },
-        "chunk_006.mp4": {
-            "status": "PROCESSING",
-            "step": "\ud83c\udf9e\ufe0f  Final Merge",
-            "message": "\u2705 Final video created: output_clips\\final_chunk_006.mp4"
-        },
-        "chunk_007.mp4": {
-            "status": "PROCESSING",
-            "step": "\ud83c\udf9e\ufe0f  Final Merge",
-            "message": "\u2705 Final video created: output_clips\\final_chunk_007.mp4"
-        },
-        "chunk_000.mp4": {
-            "status": "PROCESSING",
-            "step": "\ud83c\udf9e\ufe0f  Final Merge",
-            "message": "\u2705 Final video created: output_clips\\final_chunk_000.mp4"
+            "message": "Waiting to start...",
+            "completed_steps": [
+                "\u2702\ufe0f  Splitting Video"
+            ]
         }
     },
-    "last_updated": 1769190594.0695472
+    "last_updated": 1769248337.7369568
 }

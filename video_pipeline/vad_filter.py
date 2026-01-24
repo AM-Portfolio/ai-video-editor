@@ -35,6 +35,7 @@ import torch
 
 from decision_log import DecisionLog
 from score_keeper import ScoreKeeper
+import state_manager
 
 logger = DecisionLog()
 scorer = ScoreKeeper()
@@ -102,7 +103,12 @@ import concurrent.futures
 def process_file(args):
     path = args
     filename = os.path.basename(path)
+    step_name = "🗣️  VAD (Voice) Scoring"
     
+    if state_manager.is_step_done(filename, step_name):
+        print(f"   ⏩ {filename} -> Resumed (Already Scored)")
+        return
+
     if not os.path.exists(path):
         return
 
@@ -124,7 +130,8 @@ def process_file(args):
         )
         
         print(f"   - {filename} -> Scored: {speech_score:.3f}")
-        # NO FILE MOVEMENT
+        # Mark as done
+        state_manager.mark_step_done(filename, step_name)
     except Exception as e:
         print(f"❌ Error processing {filename}: {e}")
 

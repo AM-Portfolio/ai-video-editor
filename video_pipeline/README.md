@@ -6,7 +6,8 @@ This project implements a professional-grade AI pipeline that transforms raw vid
 ## 🌟 Key Features
 
 *   **Voice-First Decisions:** Prioritizes content (speech) over visuals. If you are talking clearly, the clip is kept even if you are looking away (`config.json`).
-*   **Hinglish Enabled:** Understands mixed Hindi/English (e.g. "Code phat gaya") using advanced Regex strategies.
+*   **Human-Supervised Knowledge Distillation:** Instead of blind learning, the AI proposes new search heuristics (Regex) after each run. You review and approve them in the dashboard to reduce future LLM costs without losing control.
+*   **Infinite Resilience (Resume Everywhere):** Every step and every individual chunk is tracked. If the system crashes or you stop it, it resumes exactly where it left off, saving hours of processing time.
 *   **Semantic Sorting:** Automatically routes clips into:
     *   `product_related` (Coding, Tech)
     *   `funny` (Jokes, Laughter)

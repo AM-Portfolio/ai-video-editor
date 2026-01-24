@@ -61,3 +61,37 @@ def update_chunk_status(chunk_name, status, step=None, message=None):
 def get_chunk_status(chunk_name):
     state = load_state()
     return state.get("chunks", {}).get(chunk_name, {})
+
+def is_step_done(chunk_name, step_name):
+    """
+    Check if a specific step is already completed for a chunk.
+    This enables 'Resume at every step' capability.
+    """
+    state = load_state()
+    chunk = state.get("chunks", {}).get(chunk_name)
+    if not chunk:
+        return False
+        
+    # If the chunk is overall COMPLETED, all steps before are done.
+    if chunk["status"] == "COMPLETED":
+        return True
+        
+    # We can also check if the specific step was the last successful one.
+    # However, for a more robust check, we'd need a history of steps.
+    # Simplest: if status is PENDING/PROCESSING but the artifact exists on disk (checked in scripts).
+    # Better: state_manager tracks successful steps.
+    completed_steps = chunk.get("completed_steps", [])
+    return step_name in completed_steps
+
+def mark_step_done(chunk_name, step_name):
+    state = load_state()
+    if chunk_name not in state.get("chunks", {}):
+        return
+    
+    if "completed_steps" not in state["chunks"][chunk_name]:
+        state["chunks"][chunk_name]["completed_steps"] = []
+    
+    if step_name not in state["chunks"][chunk_name]["completed_steps"]:
+        state["chunks"][chunk_name]["completed_steps"].append(step_name)
+        
+    save_state(state)

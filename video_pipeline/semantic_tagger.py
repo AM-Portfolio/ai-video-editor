@@ -3,6 +3,7 @@ import os
 import shutil
 import warnings
 import sys
+import state_manager
 
 # Suppress FP16 warning if CPU
 warnings.filterwarnings("ignore")
@@ -20,6 +21,8 @@ class SemanticTagger:
         self.config = self._load_config(config_path)
         self.scores_path = "processing/scores.json"
         self.output_path = "processing/semantic_tags.json"
+        self.keywords_path = "keywords_active.json"
+        self.keywords = self._load_keywords()
         
         # Configuration for "Pre-Filtering"
         # We only transcribe clips that are "kinda good" to save time.
@@ -33,6 +36,13 @@ class SemanticTagger:
                 return json.load(f)
         except Exception:
             return {}
+
+    def _load_keywords(self):
+        try:
+            with open(self.keywords_path) as f:
+                return json.load(f)
+        except Exception:
+            return {"product_related": [], "funny": []}
 
     def load_model(self):
         if self.model is None:
@@ -74,41 +84,18 @@ class SemanticTagger:
         Categories: product_related, funny, general
         """
         if not text or len(text) < 10:
-            return "general" 
+            return "general", "too_short"
 
         # 1. Fast Regex/Keyword Check
         text_lower = text.lower()
         
-        # Product Related (Code, Work, Explanation) - English + Hinglish
-        product_keywords = [
-            # English
-            "code", "api", "function", "bug", "deploy", "python", "script", "json", 
-            "token", "import ", "class ", "meeting", "agenda", "client", "project", 
-            "timeline", "deadline", "quarter", "revenue", "feature", "app", 
-            "so basically", "means that", "reason is",
-            
-            # Hinglish Tech/Work
-            "chal gaya", "run ho gaya", "error aa raha hai", "phat gaya", "test karna", 
-            "deploy kar do", "fix kar diya", "kaam hai", "urgent hai", "dead line", 
-            "commit kiya", "push kiya", "file bhejo", "check kar lo", "samajh nahi aaya",
-            "kaise chalega", "sahi chal raha hai", "issue hai", "server down", "bhai code",
-            "logic kya hai", "build ban gaya", "repo share", "merge kar", "pull request"
-        ]
+        product_keywords = self.keywords.get("product_related", [])
         if any(w in text_lower for w in product_keywords):
-            return "product_related"
+            return "product_related", "regex"
             
-        # Funny - English + Hinglish
-        funny_keywords = [
-            # English
-            "haha", "lol", "funny", "lmao", "rofl", "joke", "kidding",
-            
-            # Hinglish
-            "mazak", "kya baat hai", "mast joke", "arre bhai", "pagal hai kya", 
-            "gazab", "bawal", "sahi khel gaya", "kya scene hai", "has mat",
-            "lol bhai", "epic tha", "bakwas mat kar", "chutiyapa", "hasna mat"
-        ]
+        funny_keywords = self.keywords.get("funny", [])
         if any(w in text_lower for w in funny_keywords):
-            return "funny"
+            return "funny", "regex"
         
         # 2. Together AI Fallback (for subtle context)
         semantic_cfg = self.config.get("semantic_model", {})
@@ -149,12 +136,12 @@ Answer ONLY with the category name (lowercase)."""
                 content = response.choices[0].message.content.strip().lower()
                 for cat in ["product_related", "funny", "general"]:
                     if cat in content:
-                        return cat
+                        return cat, "llm"
             except Exception as e:
                  print(f"⚠️ Together AI call failed: {e}")
 
         # 3. Final Fallback
-        return "general" 
+        return "general", "fallback"
 
     def run(self):
         print("🏷️  Running Semantic Tagger...")
@@ -169,9 +156,18 @@ Answer ONLY with the category name (lowercase)."""
         if not self.load_model():
             return
 
-        tags = {}
-        processed_count = 0
         skipped_count = 0
+        resumed_count = 0
+        processed_count = 0
+        step_name = "🏷️  Semantic Tagging"
+
+        # Load existing tags to append/update
+        if os.path.exists(self.output_path):
+            try:
+                with open(self.output_path) as f: tags = json.load(f)
+            except: tags = {}
+        else:
+            tags = {}
         
         # We need to find the files
         # scores keys are clip_ids (filenames)
@@ -198,25 +194,36 @@ Answer ONLY with the category name (lowercase)."""
             path = clip_paths.get(clip_id)
             if not path:
                 continue
+
+            # RESUME CHECK
+            if state_manager.is_step_done(clip_id, step_name) and clip_id in tags:
+                resumed_count += 1
+                continue
                 
             # 3. Transcribe
             print(f"   🎙️  Transcribing {clip_id} (Score: {q_score:.2f})...", end="\r")
             text = self.transcribe(path)
             
             # 4. Classify
-            category = self.classify_text(text)
+            category, attribution = self.classify_text(text)
             
             tags[clip_id] = {
                 "category": category,
-                "transcript": text
+                "transcript": text,
+                "attribution": attribution
             }
+            # Visual Progress for the user
+            attr_label = f"[{attribution.upper()}]"
+            print(f"   🏷️  {clip_id}: {category:15} {attr_label:10} \"{text[:30]}...\"")
             processed_count += 1
             # print(f"   🏷️  {clip_id}: [{category}] \"{text[:30]}...\"")
+            state_manager.mark_step_done(clip_id, step_name)
             
         # Clear line
         print(f"                                                                 ", end="\r")
         print(f"✅ Tagging Complete.")
         print(f"   Processed: {processed_count}")
+        print(f"   Resumed: {resumed_count}")
         print(f"   Skipped (Low Quality): {skipped_count}")
         
         with open(self.output_path, "w") as f:

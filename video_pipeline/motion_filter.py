@@ -14,6 +14,7 @@ MOTION_THRESHOLD = config.get("motion_threshold", 30000)
 
 from decision_log import DecisionLog
 from score_keeper import ScoreKeeper
+import state_manager
 
 # Initialize loggers
 logger = DecisionLog()
@@ -49,7 +50,14 @@ import concurrent.futures
 def process_file(args):
     path = args
     filename = os.path.basename(path)
+    step_name = "🏃 Motion Scoring"
     
+    # RESUME CHECK
+    if state_manager.is_step_done(filename, step_name):
+        # We still need to print something so the log-parser in run_pipeline doesn't think it stalled
+        print(f"   ⏩ {filename} -> Resumed (Already Scored)")
+        return
+
     try:
         raw_motion = has_motion(path)
         
@@ -86,7 +94,8 @@ def process_file(args):
         )
         
         print(f"   - {filename} -> Scored: {score:.3f}")
-        # NO FILE MOVEMENT
+        # Mark as done in state
+        state_manager.mark_step_done(filename, step_name)
     except Exception as e:
         print(f"❌ Error processing {filename}: {e}")
 

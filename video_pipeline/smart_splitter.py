@@ -9,6 +9,7 @@ import re
 import os
 import shutil
 import json
+import state_manager
 
 # Try to load config if available
 try:
@@ -79,11 +80,19 @@ def get_duration(video_path):
 
 def split_video(video_path):
     video_name = os.path.splitext(os.path.basename(video_path))[0]
+    video_filename = os.path.basename(video_path)
     out_dir = os.path.join(INPUT_DIR, video_name)
+    step_name = "✂️  Splitting Video"
     
-    # Check if already processed (simple check if dir exists)
-    if os.path.exists(out_dir):
-        print(f"⚠️  Skipping {video_name} (already exists)")
+    # Check if already processed (state check)
+    if state_manager.is_step_done(video_filename, step_name):
+        print(f"   ⏩ {video_filename} -> Resumed (Already Split)")
+        return
+
+    # Check if already processed (filesystem check fallback)
+    if os.path.exists(out_dir) and len(os.listdir(out_dir)) > 0:
+        print(f"⚠️  {video_name} directory already exists with content. Marking as done.")
+        state_manager.mark_step_done(video_filename, step_name)
         return
 
     os.makedirs(out_dir, exist_ok=True)
@@ -193,6 +202,8 @@ def split_video(video_path):
         ], check=False, text=True, encoding='utf-8', errors='replace')
 
     print(f"✅ Smart split complete for {video_name}")
+    # Mark as done
+    state_manager.mark_step_done(video_filename, step_name)
 
 
 for file in os.listdir(INPUT_DIR):
