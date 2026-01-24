@@ -1,3 +1,6 @@
+import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision

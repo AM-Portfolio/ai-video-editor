@@ -1,3 +1,9 @@
+import sys
+import io
+
+# Force UTF-8 stdout for Windows
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
 import subprocess
 import re
 import os
@@ -27,10 +33,14 @@ def detect_silence(video_path):
         "-f", "null", "-"
     ]
 
-    # ffmpeg prints silencedetect info to stderr
-    result = subprocess.run(
-        cmd, stderr=subprocess.PIPE, text=True
-    )
+    try:
+        # ffmpeg prints silencedetect info to stderr
+        result = subprocess.run(
+            cmd, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace'
+        )
+    except Exception as e:
+        print(f"⚠️ Error running ffmpeg silence detect: {e}")
+        return []
 
     silence_starts = []
     silence_ends = []
@@ -57,7 +67,10 @@ def detect_silence(video_path):
 def get_duration(video_path):
     cmd = ["ffprobe", "-v", "error", "-show_entries",
          "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", video_path]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
+    try:
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
+    except Exception:
+        return 0.0
     try:
         return float(result.stdout.strip())
     except ValueError:
@@ -177,7 +190,7 @@ def split_video(video_path):
             "-fflags", "+genpts",
             "-loglevel", "error",
             out
-        ], check=False)
+        ], check=False, text=True, encoding='utf-8', errors='replace')
 
     print(f"✅ Smart split complete for {video_name}")
 
