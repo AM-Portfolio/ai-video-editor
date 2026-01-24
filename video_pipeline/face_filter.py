@@ -36,24 +36,34 @@ FACE_CONFIDENCE = config.get("face_confidence", 0.5)
 options = vision.FaceDetectorOptions(base_options=base_options, min_detection_confidence=FACE_CONFIDENCE)
 detector = vision.FaceDetector.create_from_options(options)
 
+from decision_log import DecisionLog
+from score_keeper import ScoreKeeper
+
+logger = DecisionLog()
+scorer = ScoreKeeper()
+
 def has_face(video_path, num_samples=10):
-    """Check if face is present by sampling frames evenly throughout the video"""
+    """Check if face is present and return visibility ratio (0.0 - 1.0)"""
     cap = cv2.VideoCapture(video_path)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
     if total_frames == 0:
         cap.release()
-        return False
+        return 0.0
     
     # Calculate frame indices to sample evenly throughout the video
     sample_indices = [int(i * total_frames / num_samples) for i in range(num_samples)]
     
-    face_found = False
+    faces_detected = 0
+    frames_checked = 0
+    
     for frame_idx in sample_indices:
         cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
         ret, frame = cap.read()
         if not ret:
             continue
+            
+        frames_checked += 1
 
         # Convert to RGB and mp.Image
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -62,66 +72,74 @@ def has_face(video_path, num_samples=10):
         detection_result = detector.detect(mp_image)
         
         if detection_result.detections:
-            face_found = True
-            break
+            faces_detected += 1
             
     cap.release()
-    return face_found
+    
+    if frames_checked == 0:
+        return 0.0
+        
+    return faces_detected / frames_checked
 
 
 import concurrent.futures
 
 def process_file(args):
-    path, face_dir, no_face_dir = args
+    path = args
     filename = os.path.basename(path)
     
     if not os.path.exists(path):
         return
 
     try:
-        is_face = has_face(path)
-        target_dir = face_dir if is_face else no_face_dir
-        status = "👤 FACE" if is_face else "🚫 NO FACE"
+        visibility_score = has_face(path)
         
-        print(f"   - {filename} -> {status}")
-        shutil.move(path, os.path.join(target_dir, filename))
+        # Persist Score
+        scorer.update_score(filename, "face_score", visibility_score)
+        
+        # Log decision
+        logger.log(
+            module="face_filter",
+            decision="scored_clip",
+            confidence=1.0, 
+            reason="face_analysis",
+            metrics={
+                "face_visibility": round(visibility_score, 2)
+            }
+        )
+        
+        print(f"   - {filename} -> Scored: {visibility_score:.3f}")
+        # NO FILE MOVEMENT
     except Exception as e:
         print(f"❌ Error processing {filename}: {e}")
 
 if __name__ == "__main__":
-    print(f"👤 Scanning {BASE_DIR} for face presence...")
+    print(f"👤 Scanning {BASE_DIR} for face presence (Scoring Mode)...")
     
     max_workers = max(1, os.cpu_count() - 2)
+    files_found = False
     
     for clip in os.listdir(BASE_DIR):
         clip_dir = os.path.join(BASE_DIR, clip)
         if not os.path.isdir(clip_dir):
             continue
 
-        keep_dir = os.path.join(clip_dir, "keep")
-        speech_dir = os.path.join(keep_dir, "speech")
-        
-        if not os.path.isdir(speech_dir):
+        if clip.startswith("output") or clip.startswith("temp"):
             continue
-        
-        face_dir = os.path.join(speech_dir, "face")
-        no_face_dir = os.path.join(speech_dir, "no_face")
 
-        os.makedirs(face_dir, exist_ok=True)
-        os.makedirs(no_face_dir, exist_ok=True)
-        
         print(f"   Processing clip folder: {clip}")
-
+        
         tasks = []
-        for file in os.listdir(speech_dir):
+        for file in os.listdir(clip_dir):
             if not file.endswith(".mp4"):
                 continue
-
-            src = os.path.join(speech_dir, file)
-            if os.path.exists(src):
-                tasks.append((src, face_dir, no_face_dir))
-        
+            path = os.path.join(clip_dir, file)
+            tasks.append(path) # Only path
+            
         if tasks:
+            files_found = True
             with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
                 executor.map(process_file, tasks)
 
+    if not files_found:
+        print("   ⚠️ No folders/clips found to score.")

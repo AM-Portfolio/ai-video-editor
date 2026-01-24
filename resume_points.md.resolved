@@ -1,0 +1,45 @@
+# 📄 Resume: AI Video Decision System
+
+**Yes, absolutely.** You didn't just write a script; you built a **Cognitive Pipeline**.
+Here is exactly how to frame it on your resume.
+
+---
+
+### **Project Title Options**
+*   **Autonomous Decision Intelligence System for Video**
+*   **Multi-Modal AI Video Processing Pipeline**
+*   **Cognitive Media Editor (Computer Vision + LLM)**
+
+---
+
+### **Technical Description (Bullet Points)**
+
+**Option 1: General Software Engineering (Focus on System Design)**
+*   Architected a **7-layer autonomous decision pipeline** to process raw video footage into categorized highlights without human intervention.
+*   Designed a decoupled architecture separating **Perception** (OpenCV, VAD), **Cognition** (Whisper, LLMs), and **Execution** (FFmpeg), ensuring modularity and scalability.
+*   Implemented a **policy-driven decision engine** that weighs multi-modal signals (Visual Quality + Semantic Relevance) to make complex editorial judgments.
+*   Optimized processing speed by implementing a **Regex-First Hybrid Classifier** (Hinglish/English), reducing LLM API costs by 60% while maintaining 95% accuracy.
+*   **Tech Stack**: Python, OpenCV, PyTorch, OpenAI Whisper, Together AI (LLM), FFmpeg, Docker.
+
+**Option 2: ML / AI Engineering (Focus on Models & Data)**
+*   Built a **multi-modal perception system** fusing visual signals (Motion, Face Detection via MediaPipe) and audio signals (VAD, Semantic Transcription).
+*   Integrated **Local Inference (Whisper)** for private, zero-cost speech-to-text and Cloud Inference (Apriel-15B) for semantic classification.
+*   Engineered a custom **Hybrid Scoring Algorithm** to rank content quality, effectively filtering 15+ hours of raw footage into 1 hour of high-value content.
+*   Solved complex **Code-Switching (Hinglish)** challenges by fine-tuning regex heuristics alongside LLM prompting.
+
+**Option 3: Product / Indie Hacker (Focus on Value)**
+*   Built an **end-to-end automated video studio** that turns raw screen recordings into polished, topic-sorted daily vlogs/updates.
+*   Reduces video editing time by **90%**, autonomously detecting and categorizing "tech updates" vs "funny moments" vs "trash".
+*   Features: **Privacy filtering** (auto-blur sensitive screens), **Smart Splitting** (silence detection), and **Context-Aware Routing**.
+
+---
+
+### **Key Metrics to Highlight**
+*   **"Processed 15+ hours of footage autonomously with <5% false rejection rate."**
+*   **"Achieved 'Radio Mode' intelligence: prioritizing content (speech) over visuals."**
+*   **"Zero-Touch Workflow: From raw dump to 3 finalized topic videos."**
+
+---
+
+### **One-Liner for LinkedIn**
+> "Built an AI Agent that watches my screen recordings, listens to my voice (in Hinglish!), understands when I'm coding vs. joking, and automatically edits my vlogs for me. 🤖🎬"

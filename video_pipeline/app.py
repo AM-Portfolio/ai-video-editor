@@ -50,29 +50,41 @@ def main():
     
     # Silence Settings
     st.sidebar.subheader("✂️ Auto-Cut Silence")
-    
-    # Handle potentially string-based silence_db (e.g., "-30dB")
     raw_silence = config.get("silence_db", -30)
     if isinstance(raw_silence, str):
-        try:
-            raw_silence = int(raw_silence.replace("dB", "").strip())
-        except ValueError:
-            raw_silence = -30
-            
+        try: raw_silence = int(raw_silence.replace("dB", "").strip())
+        except: raw_silence = -30
     silence_db = st.sidebar.slider("Silence Threshold (dB)", -60, -10, int(raw_silence))
     silence_duration = st.sidebar.number_input("Min Silence Duration (s)", 0.1, 5.0, float(config.get("silence_duration", 0.5)))
-    
+
     # Privacy Blur Settings
     st.sidebar.divider()
     st.sidebar.subheader("🔒 Privacy Blur")
     blur_enabled = st.sidebar.checkbox("Enable Privacy Blur", config.get("privacy_blur", {}).get("enabled", False))
     blur_mode = st.sidebar.selectbox(
         "Blur Mode", 
-        ["face_blur", "region_blur"], 
-        index=0 if config.get("privacy_blur", {}).get("mode") == "face_blur" else 1
+        ["face_blur", "text_blur", "region_blur"], 
+        index=0 if config.get("privacy_blur", {}).get("mode") == "face_blur" else 1 if config.get("privacy_blur", {}).get("mode") == "text_blur" else 2
     )
     blur_strength = st.sidebar.slider("Blur Strength", 1, 100, config.get("privacy_blur", {}).get("blur_strength", 25))
     exclude_main_face = st.sidebar.checkbox("Exclude Main Speaker", config.get("privacy_blur", {}).get("exclude_main_face", True))
+
+    # Decider Policy Settings
+    st.sidebar.divider()
+    st.sidebar.subheader("⚖️ Decider Policy")
+    keep_threshold = st.sidebar.slider("Keep Threshold", 0.0, 1.0, float(config.get("decider", {}).get("keep_threshold", 0.50)))
+    
+    st.sidebar.caption("Scoring Weights (Sum should be 1.0 ideally)")
+    w_face = st.sidebar.slider("Face Visibility Weight", 0.0, 1.0, float(config.get("decider", {}).get("weights", {}).get("face", 0.1)))
+    w_motion = st.sidebar.slider("Motion Weight", 0.0, 1.0, float(config.get("decider", {}).get("weights", {}).get("motion", 0.2)))
+    w_speech = st.sidebar.slider("Speech Presence Weight", 0.0, 1.0, float(config.get("decider", {}).get("weights", {}).get("speech", 0.7)))
+
+    # Semantic Policy Settings
+    st.sidebar.divider()
+    st.sidebar.subheader("🏷️ Semantic Weights")
+    s_product = st.sidebar.slider("Product Related Influence", 0.0, 1.0, float(config.get("semantic_policy", {}).get("weights", {}).get("product_related", 1.0)))
+    s_funny = st.sidebar.slider("Funny Influence", 0.0, 1.0, float(config.get("semantic_policy", {}).get("weights", {}).get("funny", 1.0)))
+    s_general = st.sidebar.slider("General Content Influence", 0.0, 1.0, float(config.get("semantic_policy", {}).get("weights", {}).get("general", 0.9)))
 
     # Save Config Button
     if st.sidebar.button("💾 Save Settings"):
@@ -83,67 +95,78 @@ def main():
         config["privacy_blur"]["mode"] = blur_mode
         config["privacy_blur"]["blur_strength"] = blur_strength
         config["privacy_blur"]["exclude_main_face"] = exclude_main_face
+        
+        # New Decider Weights
+        if "decider" not in config: config["decider"] = {}
+        config["decider"]["keep_threshold"] = keep_threshold
+        config["decider"]["weights"] = {"face": w_face, "motion": w_motion, "speech": w_speech}
+        
+        # New Semantic Weights
+        if "semantic_policy" not in config: config["semantic_policy"] = {}
+        config["semantic_policy"]["weights"] = {"product_related": s_product, "funny": s_funny, "general": s_general}
+
         save_config(config)
         st.sidebar.success("Settings saved!")
 
     # Main Area: File Upload
     
     def merge_and_display_result(base_name="video"):
-        # Check for output videos
-        if os.path.exists(FINAL_OUTPUT_DIR):
-            # Identify chunks that were processed
-            chunk_finals = [f for f in os.listdir(FINAL_OUTPUT_DIR) if f.startswith("final_chunk_") and f.endswith(".mp4")]
-            chunk_finals.sort()
-            
-            if chunk_finals:
-                st.divider()
-                
-                # --- NEW: Individual Chunk Review ---
-                st.subheader("📼 Review Individual Chunks")
-                for i, chunk in enumerate(chunk_finals):
-                    with st.expander(f"▶️ Play {chunk}", expanded=False):
-                        chunk_path = os.path.join(FINAL_OUTPUT_DIR, chunk)
-                        st.video(chunk_path)
-                        # Placeholder for future feedback
-                        st.text_area(f"Feedback for {chunk}", placeholder="Notes for this segment...", key=f"note_{i}")
-                
-                st.divider()
-                st.write("🧩 Merging final segments...")
-                
-                # Create concat list for final merge
-                concat_list_path = os.path.join(FINAL_OUTPUT_DIR, "concat_final_list.txt")
-                with open(concat_list_path, "w") as f:
-                    for chunk in chunk_finals:
-                        abs_path = os.path.join(FINAL_OUTPUT_DIR, chunk).replace("\\", "/")
-                        f.write(f"file '{abs_path}'\n")
-                        
-                # Final Output Name
-                master_output = os.path.join(FINAL_OUTPUT_DIR, f"final_MASTER_{base_name}.mp4")
-                
-                cmd_merge = [
-                    "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                    "-i", concat_list_path,
-                    "-c", "copy",
-                    master_output
-                ]
-                
-                try:
-                    subprocess.run(cmd_merge, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    st.subheader("🎞️ Final Result")
-                    st.video(master_output)
+        # Check for output videos folder
+        if not os.path.exists(FINAL_OUTPUT_DIR):
+            st.warning("No output directory found. Processing may still be in progress.")
+            return
+
+        CATEGORIES = ["product_related", "funny", "general"]
+        
+        st.divider()
+        st.subheader("🏁 Final Categorized Results")
+        
+        # Load clip metadata if exists for rich info
+        tags_path = os.path.join(BASE_DIR, "processing", "semantic_tags.json")
+        tags_data = {}
+        if os.path.exists(tags_path):
+            try:
+                with open(tags_path, 'r') as f: tags_data = json.load(f)
+            except: pass
+
+        tabs = st.tabs(["🚀 Product Highlights", "😂 Funny Moments", "🌍 General Content", "🏗️ Architecture Map"])
+        
+        for idx, category in enumerate(CATEGORIES):
+            with tabs[idx]:
+                category_dir = os.path.join(FINAL_OUTPUT_DIR, category)
+                if os.path.exists(category_dir):
+                    chunks = [f for f in os.listdir(category_dir) if f.endswith(".mp4")]
+                    chunks.sort()
                     
-                    with open(master_output, "rb") as video_file:
-                        st.download_button(
-                            label="⬇️ Download Final Video",
-                            data=video_file,
-                            file_name=os.path.basename(master_output),
-                            mime="video/mp4"
-                        )
-                        
-                except subprocess.CalledProcessError as e:
-                    st.error(f"❌ Final merge failed: {e}")
+                    if chunks:
+                        st.info(f"Found {len(chunks)} clips in {category}.")
+                        # Individual Review
+                        for i, chunk in enumerate(chunks):
+                            tag_info = tags_data.get(chunk, "Unknown")
+                            with st.expander(f"▶️ {chunk} (Semantic: {tag_info})"):
+                                st.video(os.path.join(category_dir, chunk))
+
+                        # MASTER CATEGORY VIDEO
+                        master_name = f"final_output_{category}.mp4"
+                        master_path = os.path.join(BASE_DIR, "output_videos", master_name)
+                        if os.path.exists(master_path):
+                            st.write(f"---")
+                            st.success(f"📦 Merged {category} video ready!")
+                            st.video(master_path)
+                            with open(master_path, "rb") as f:
+                                st.download_button(f"⬇️ Download {category} Supercut", f, file_name=master_name, key=f"dl_{category}")
+                    else:
+                        st.write("No clips selected for this category.")
+                else:
+                    st.write(f"Category folder not created yet.")
+
+        with tabs[3]:
+            st.subheader("System Architecture")
+            arch_img = "/Users/munishm/.gemini/antigravity/brain/64fd5323-bdd6-4c6c-888b-5e6937731e2c/ai_video_pipeline_architecture_1769243921785.png"
+            if os.path.exists(arch_img):
+                st.image(arch_img, caption="7-Layer Cognitive Video Pipeline")
             else:
-                st.warning("No output chunks found. Check logs for errors.")
+                st.warning("Architecture diagram not found.")
 
     # Main Area: File Upload
     PROCESSING_DIR = os.path.join(BASE_DIR, "processing")
@@ -214,41 +237,10 @@ def main():
                 st.rerun()
 
     # --- PERSISTENT REVIEW DASHBOARD ---
-    # Show this ALWAYS if output files exist, so user can see previous results immediately
+    # Redirecting to the modernized merge_and_display_result logic
     if os.path.exists(FINAL_OUTPUT_DIR):
-        final_chunks = [f for f in os.listdir(FINAL_OUTPUT_DIR) if f.startswith("final_chunk_") and f.endswith(".mp4")]
-        debug_chunks = [f for f in os.listdir(FINAL_OUTPUT_DIR) if f.startswith("debug_chunk_") and f.endswith(".mp4")]
-        final_chunks.sort()
-        debug_chunks.sort()
-        
-        if final_chunks or debug_chunks:
-            st.divider()
-            st.header("📼 Project Review")
-            
-            tab_final, tab_debug = st.tabs(["✨ Final Segments", "🕵️ Debug Visualization"])
-            
-            with tab_final:
-                if final_chunks:
-                    for chunk in final_chunks:
-                        with st.expander(f"▶️ {chunk}", expanded=False):
-                            st.video(os.path.join(FINAL_OUTPUT_DIR, chunk))
-                else:
-                    st.info("No final chunks yet.")
-                    
-            with tab_debug:
-                if debug_chunks:
-                    for chunk in debug_chunks:
-                        with st.expander(f"▶️ {chunk}", expanded=False):
-                            st.video(os.path.join(FINAL_OUTPUT_DIR, chunk))
-                else:
-                    st.info("No debug visualizations yet.")
-            
-            # Check for Master File
-            master_files = [f for f in os.listdir(FINAL_OUTPUT_DIR) if f.startswith("final_MASTER_") and f.endswith(".mp4")]
-            if master_files:
-                st.subheader("🎉 Master Output")
-                latest_master = max([os.path.join(FINAL_OUTPUT_DIR, f) for f in master_files], key=os.path.getctime)
-                st.video(latest_master)
+        # We just call the function which now handles everything in tabs
+        merge_and_display_result("latest_run")
     # -----------------------------------
                 
     uploaded_file = st.file_uploader("Upload a Video (.mp4)", type=["mp4"])

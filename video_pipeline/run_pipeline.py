@@ -8,10 +8,16 @@ import state_manager
 
 STEPS = [
     ("✂️  Splitting Video", "smart_splitter.py"),
-    ("🏃 Motion Filtering", "motion_filter.py"),
-    ("🗣️  VAD (Voice) Filtering", "vad_filter.py"),
-    ("👤 Face Detection", "face_filter.py"),
+    ("🏃 Motion Scoring", "motion_filter.py"),
+    ("🗣️  VAD (Voice) Scoring", "vad_filter.py"),
+    ("👤 Face Detection Scoring", "face_filter.py"),
     ("🔒 Privacy Blur", "privacy_filter.py"),
+    ("🏷️  Semantic Tagging", "semantic_tagger.py"),
+    ("🧠 The Decider", "decider.py"),
+    ("📊 Decision Analytics", "decision_analytics.py"),
+    ("🗺️  Action Planner", "action_planner.py"),
+    ("🚜 Action Executor", "action_executor.py"),
+    ("📝 Run Explainer", "run_explainer.py"),
     ("🕵️  Debug Visualization", "render_debug.py"),
     ("🎞️  Final Merge", "merge_final.py"),
 ]
@@ -79,10 +85,10 @@ def ingest_files(logger_callback=None):
         if os.path.exists(dst):
             os.remove(dst)
 
-        msg = f"   -> Moving {filename} to {PROCESSING_DIR}/{clean_name}"
+        msg = f"   -> Copying {filename} to {PROCESSING_DIR}/{clean_name}"
         print(msg)
         if logger_callback: logger_callback(msg)
-        shutil.move(src, dst)
+        shutil.copy2(src, dst)
         moved_count += 1
         active_chunks.append(clean_name)
         

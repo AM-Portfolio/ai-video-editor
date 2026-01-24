@@ -33,7 +33,17 @@ import subprocess
 import tempfile
 import torch
 
-def has_speech(video_path):
+from decision_log import DecisionLog
+from score_keeper import ScoreKeeper
+
+logger = DecisionLog()
+scorer = ScoreKeeper()
+
+def get_speech_score(video_path):
+    """
+    Calculate the ratio of speech to total duration.
+    Returns score (0.0 - 1.0)
+    """
     # Use ffmpeg to extract audio to a temp wav file
     # Then use soundfile to read it, bypassing torchaudio's flaky backend detection
     
@@ -67,11 +77,21 @@ def has_speech(video_path):
             waveform, model, sampling_rate=16000
         )
         
-        return len(speech_timestamps) > 0
+        if not speech_timestamps:
+            return 0.0
+            
+        # Calculate total speech samples
+        total_speech_samples = sum([t['end'] - t['start'] for t in speech_timestamps])
+        total_samples = waveform.size(1)
+        
+        if total_samples == 0:
+            return 0.0
+            
+        return total_speech_samples / total_samples
 
     except Exception as e:
         print(f"   ⚠️ Error processing audio for {os.path.basename(video_path)}: {e}")
-        return False
+        return 0.0
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -80,58 +100,62 @@ def has_speech(video_path):
 import concurrent.futures
 
 def process_file(args):
-    path, speech_dir, silent_dir = args
+    path = args
     filename = os.path.basename(path)
     
     if not os.path.exists(path):
         return
 
     try:
-        is_speech = has_speech(path)
-        target_dir = speech_dir if is_speech else silent_dir
-        status = "🗣️ SPEECH" if is_speech else "🤫 SILENT"
+        speech_score = get_speech_score(path)
         
-        print(f"   - {filename} -> {status}", flush=True)
-        shutil.move(path, os.path.join(target_dir, filename))
+        # Persist Score
+        scorer.update_score(filename, "vad_score", speech_score)
+        
+        # Log decision
+        logger.log(
+            module="vad_filter",
+            decision="scored_clip",
+            confidence=1.0, 
+            reason="speech_analysis",
+            metrics={
+                "speech_ratio": round(speech_score, 2)
+            }
+        )
+        
+        print(f"   - {filename} -> Scored: {speech_score:.3f}")
+        # NO FILE MOVEMENT
     except Exception as e:
         print(f"❌ Error processing {filename}: {e}")
 
 if __name__ == "__main__":
-    print(f"🎙️  Scanning {BASE_DIR} for human speech (VAD)...")
+    print(f"🎙️  Scanning {BASE_DIR} for human speech (VAD Scoring Mode)...")
     
     max_workers = max(1, os.cpu_count() - 2)
+    files_found = False
     
     for clip in os.listdir(BASE_DIR):
         clip_dir = os.path.join(BASE_DIR, clip)
         if not os.path.isdir(clip_dir):
             continue
 
-        keep_dir = os.path.join(clip_dir, "keep")
-        if not os.path.isdir(keep_dir):
+        if clip.startswith("output") or clip.startswith("temp"):
             continue
-
-        speech_dir = os.path.join(keep_dir, "speech")
-        silent_dir = os.path.join(keep_dir, "silent")
-
-        os.makedirs(speech_dir, exist_ok=True)
-        os.makedirs(silent_dir, exist_ok=True)
 
         print(f"   Processing clip folder: {clip}")
 
         tasks = []
-        for file in os.listdir(keep_dir):
+        for file in os.listdir(clip_dir):
             if not file.endswith(".mp4"):
                 continue
 
-            src = os.path.join(keep_dir, file)
-            # Only add if it exists (race check)
-            if os.path.exists(src):
-                tasks.append((src, speech_dir, silent_dir))
-        
+            src = os.path.join(clip_dir, file)
+            tasks.append(src) # Only path
+            
         if tasks:
-            print(f"   🚀 Starting {len(tasks)} parallel tasks...")
+            files_found = True
             with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
                 executor.map(process_file, tasks)
-        else:
-            print("   ⚠️ No tasks for this clip.")
 
+    if not files_found:
+        print("   ⚠️ No folders/clips found to score.")

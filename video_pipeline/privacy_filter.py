@@ -14,6 +14,11 @@ import cv2
 import os
 import json
 import numpy as np
+import re
+import easyocr
+
+# Initialize OCR Reader (English)
+reader = easyocr.Reader(['en'], gpu=False) # GPU False for better terminal stability in this environment
 
 with open("config.json") as f:
     config = json.load(f)
@@ -28,6 +33,23 @@ BLUR_MODE = privacy_config.get("mode", "none")  # face_blur, background_blur, re
 BLUR_STRENGTH = privacy_config.get("blur_strength", 25)
 EXCLUDE_MAIN_FACE = privacy_config.get("exclude_main_face", True)
 BLUR_REGIONS = privacy_config.get("regions", [])  # List of [x1, y1, x2, y2] in percentages
+SENSITIVE_KEYWORDS = privacy_config.get("sensitive_keywords", [])
+
+def is_sensitive(text):
+    """Check if text contains sensitive patterns or keywords"""
+    text = text.lower().strip()
+    
+    # Check for Email pattern
+    email_pattern = r'[a-zA-Z0-9.-]+@[a-z.-]+\.[a-z]{2,}'
+    if re.search(email_pattern, text):
+        return True
+    
+    # Check for keywords
+    for kw in SENSITIVE_KEYWORDS:
+        if kw in text:
+            return True
+            
+    return False
 
 def get_face_center(detection):
     """Get the center point of a face bounding box"""
@@ -90,7 +112,7 @@ def process_video_face_blur(input_path, output_path):
     base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
     options = vision.FaceDetectorOptions(
         base_options=base_options, 
-        min_detection_confidence=config.get("face_confidence", 0.3)
+        min_detection_confidence=privacy_config.get("detection_confidence", 0.15)
     )
     detector = vision.FaceDetector.create_from_options(options)
     
@@ -168,9 +190,14 @@ def process_video_face_blur(input_path, output_path):
     
     return True
 
-def process_video_region_blur(input_path, output_path):
-    """Blur specific screen regions (e.g., notification bar)"""
-    print(f"🔒 Applying region blur to {os.path.basename(input_path)}...")
+def process_video_text_blur(input_path, output_path):
+    """Detect and blur sensitive text while protecting the main speaker"""
+    print(f"🔒 Applying smart text blur to {os.path.basename(input_path)}...")
+    
+    # Initialize face detector for protection
+    base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
+    options = vision.FaceDetectorOptions(base_options=base_options, min_detection_confidence=0.15)
+    detector = vision.FaceDetector.create_from_options(options)
     
     cap = cv2.VideoCapture(input_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -180,55 +207,112 @@ def process_video_region_blur(input_path, output_path):
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
     
+    # OCR is heavy - sample every N frames for speed
+    frame_interval = 5 
+    frame_count = 0
+    
+    active_blur_boxes = [] # Persist boxes for a few frames to handle flicker
+
     while cap.isOpened():
         ret, frame = cap.read()
-        if not ret:
-            break
+        if not ret: break
         
-        # Apply blur to each defined region (percentages to pixels)
-        for region in BLUR_REGIONS:
-            x1 = int(region[0] * width / 100)
-            y1 = int(region[1] * height / 100)
-            x2 = int(region[2] * width / 100)
-            y2 = int(region[3] * height / 100)
-            frame = apply_blur_to_region(frame, x1, y1, x2, y2, BLUR_STRENGTH)
+        frame_count += 1
         
+        # 1. Detect Speaker Face (to PROTECT it from blur)
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+        face_result = detector.detect(mp_image)
+        
+        main_face_bbox = None
+        if face_result.detections:
+            main_face = max(face_result.detections, key=lambda d: get_main_face_score(d, width, height))
+            main_face_bbox = main_face.bounding_box
+
+        # 2. OCR Detection (Every N frames)
+        if frame_count % frame_interval == 1:
+            active_blur_boxes = []
+            ocr_results = reader.readtext(frame)
+            
+            for (bbox, text, prob) in ocr_results:
+                if is_sensitive(text):
+                    # Convert easyocr corners to x1,y1,x2,y2
+                    (tl, tr, br, bl) = bbox
+                    bx1, by1 = int(tl[0]), int(tl[1])
+                    bx2, by2 = int(br[0]), int(br[1])
+                    
+                    # Check for conflict with face
+                    if main_face_bbox:
+                        fx1, fy1 = int(main_face_bbox.origin_x), int(main_face_bbox.origin_y)
+                        fx2, fy2 = fx1 + int(main_face_bbox.width), fy1 + int(main_face_bbox.height)
+                        
+                        # Simple overlap check: If box is mostly inside face, it might be a false positive or shirt text
+                        # We skip blurring if it's too close to the main face
+                        if not (bx1 > fx2 or bx2 < fx1 or by1 > fy2 or by2 < fy1):
+                            continue
+                            
+                    active_blur_boxes.append((bx1, by1, bx2, by2))
+
+        # 3. Apply Blurs
+        for box in active_blur_boxes:
+            frame = apply_blur_to_region(frame, box[0], box[1], box[2], box[3], BLUR_STRENGTH * 2) # Stronger blur for text
+            
         out.write(frame)
     
     cap.release()
     out.release()
     
-    # Re-encode with audio
+    # Re-encode with audio (ffmpeg map logic same as before)
     temp_path = output_path + ".temp.mp4"
     os.rename(output_path, temp_path)
-    
     import subprocess
     cmd = [
-        "ffmpeg", "-y",
-        "-i", temp_path,
-        "-i", input_path,
+        "ffmpeg", "-y", "-i", temp_path, "-i", input_path,
         "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-        "-map", "0:v:0", "-map", "1:a:0?",
-        "-c:a", "aac", "-b:a", "192k",
-        "-shortest",
-        output_path
+        "-map", "0:v:0", "-map", "1:a:0?", "-c:a", "aac", "-b:a", "192k",
+        "-shortest", output_path
     ]
     subprocess.run(cmd, stderr=subprocess.DEVNULL)
     os.remove(temp_path)
-    
     return True
+
+from decision_log import DecisionLog
+logger = DecisionLog()
 
 def process_chunk(input_path, output_path):
     """Process a single video chunk based on blur mode"""
+    result = False
+    metric_type = "none"
+    
     if BLUR_MODE == "face_blur":
-        return process_video_face_blur(input_path, output_path)
+        metric_type = "face_blur"
+        result = process_video_face_blur(input_path, output_path)
     elif BLUR_MODE == "region_blur":
-        return process_video_region_blur(input_path, output_path)
+        metric_type = "region_blur"
+        result = process_video_region_blur(input_path, output_path)
+    elif BLUR_MODE == "text_blur":
+        metric_type = "text_blur"
+        result = process_video_text_blur(input_path, output_path)
     else:
         # No processing, just copy
         import shutil
         shutil.copy(input_path, output_path)
-        return True
+        metric_type = "passthrough"
+        result = True
+        
+    # Log decision
+    logger.log(
+        module="privacy_filter",
+        decision="apply_privacy" if BLUR_MODE != "none" else "passthrough",
+        confidence=1.0,
+        reason=f"privacy_mode_{BLUR_MODE}",
+        metrics={
+            "blur_mode": BLUR_MODE,
+            "blur_strength": BLUR_STRENGTH, 
+            "processed": result
+        }
+    )
+    return result
 
 if __name__ == "__main__":
     if not BLUR_ENABLED or BLUR_MODE == "none":

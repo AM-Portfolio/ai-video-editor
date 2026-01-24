@@ -1,77 +1,81 @@
-# 🎥 AI-Powered Video Editor Pipeline
+# AI Video Editor Pipeline 🧠
+> A Decision Intelligence System for automated video processing.
 
-**An intelligent, automated video editing engine that uses Computer Vision and Audio AI to transform raw footage into polished content.**
+This project implements a professional-grade AI pipeline that transforms raw video footage into a polished edit using a sophisticated **Perception -> Decision -> Action** architecture.
 
-This project employs a multi-stage AI pipeline to autonomously detect the best moments in your video. By combining **Silero VAD (Neural Speech Detection)** and **MediaPipe (Face Analysis)**, it eliminates silence, removes bad takes, and ensures the subject is always in focus—all without manual intervention.
+## 🌟 Key Features
 
-## 🧠 Key AI Technologies
+*   **Voice-First Decisions:** Prioritizes content (speech) over visuals. If you are talking clearly, the clip is kept even if you are looking away (`config.json`).
+*   **Hinglish Enabled:** Understands mixed Hindi/English (e.g. "Code phat gaya") using advanced Regex strategies.
+*   **Semantic Sorting:** Automatically routes clips into:
+    *   `product_related` (Coding, Tech)
+    *   `funny` (Jokes, Laughter)
+    *   `general` (Life updates - kept if voice is clear)
+*   **Centralized Decider**: A single "Brain" (`decider.py`) makes holistic decisions based on weighted scores and configurable logic.
+*   **Explainable AI**: Every decision is traced, analyzed, and explained. The system produces a human-readable narrative and detailed per-clip justifications.
 
-### 1. Neural Voice Activity Detection (VAD)
-Uses **Silero VAD**, a pre-trained deep learning model, to distinguish human speech from background noise, breathing, and silence with high precision. Unlike simple decibel-based cutting, this understands *voice*.
+## 🏗 Architecture
 
-### 2. Computer Vision Face Tracking
-Leverages **Google MediaPipe** to analyze every frame. The pipeline ensures:
-*   **Presence**: The speaker is actually visible in the frame.
-*   **Engagement**: Discards clips where the subject turns away or is obstructed.
+The pipeline operates in distinct phases:
 
-### 3. Intelligent Privacy & Focus
-Implements heuristic AI to identify the **Active Speaker** based on frame composition and size. Automatically detects and blurs bystander faces to maintain privacy and keep viewer attention on the main subject.
+1.  **Perception (Sensors)**
+    *   `smart_splitter.py`: Chunks video.
+    *   `motion_filter.py`: Scores visual interest.
+    *   `vad_filter.py`: Scores speech quality.
+    *   `face_filter.py`: Scores face visibility.
+    *   `semantic_tagger.py`: Listens to speech (Whisper) + Classifies meaning (Together AI).
 
-## 🚀 Quick Start
+2.  **Intelligence (The Brain)**
+    *   `decider.py`: Aggregates scores -> Makes decisions. Uses Priority Logic (Product > Funny > General).
+    *   `decision_analytics.py`: Analyzes run statistics, rejects reasons, and sensitivity.
 
-1.  **Drop Files**: Place your raw `.mp4` files into the `input_clips/` folder.
-    *   *Note: Files must have an audio track.*
-2.  **Run Pipeline**:
-    ```bash
-    python3 run_pipeline.py
-    ```
-3.  **Get Output**: Find your finished video in `output_clips/final_<filename>.mp4`.
-    *   *Debug*: If enabled, check `output_clips/debug_<filename>.mp4` to see what was cut.
+3.  **Policy & Action**
+    *   `action_planner.py`: Translates decisions into a categorized plan based on content type.
+    *   `action_executor.py`: Safely routes clips to `output_clips/product_related`, `funny`, etc.
 
----
+4.  **Explanation (Trust)**
+    *   `run_explainer.py`: Generates `run_summary.json` (Narrative) and `clip_explanations.json` (Detail).
 
-## ⚙️ Configuration (`config.json`)
+5.  **Output**
+    *   `merge_final.py`: Merges the categorized clips into final videos (`final_output_product_related.mp4`, etc).
 
-Customize the behavior by editing `config.json`:
+## 🚀 Usage
 
-| Parameter | Default | Description |
-| :--- | :--- | :--- |
-| `debug_mode` | `true` | If `true`, generates an "X-ray" video showing accepted/rejected chunks. |
-| `min_chunk_duration` | `1.5` | Minimum length (in seconds) for a clip to be kept. |
-| `max_chunk_duration` | `15.0` | Maximum length before a long clip is forced split. |
-| `silence_db` | `-30dB` | Audio threshold to consider as silence (lower = fewer splits). |
-| `silence_duration` | `0.4` | Minimum silence length to trigger a split. |
-| `motion_threshold` | `30000` | Sensitivity for removing static/idle frames (higher = less sensitive). |
-| `face_confidence` | `0.5` | Confidence threshold (0.0 - 1.0) for detecting a face. |
-| `crossfade_duration` | `0.1` | Duration (seconds) of the audio/video crossfade between clips. |
+```bash
+# 1. Place raw videos in input_clips/
+# 2. Run the full pipeline
+python video_pipeline/run_pipeline.py
+```
 
----
+## ⚙️ Configuration
 
-## 🛠 Pipeline Steps
+Control the brain via `video_pipeline/config.json`. The current policy is **Voice-Centric**:
 
-The `run_pipeline.py` script automatically orchestrates these steps:
+```json
+{
+    "decider": {
+        "keep_threshold": 0.50,
+        "weights": {
+            "face": 0.1,
+            "motion": 0.2,
+            "speech": 0.7  <-- High weight on Voice
+        }
+    },
+    "semantic_policy": {
+        "weights": {
+            "product_related": 1.0,
+            "funny": 1.0,
+            "general": 0.9 <-- High weight to keep clear speech
+        }
+    }
+}
+```
 
-1.  **✂️ Smart Splitting**: Intelligently cuts video at natural pauses (silence).
-2.  **🏃 Motion Filtering**: Removes segments where there is no movement (idle).
-3.  **🗣️ VAD Filtering**: Uses Machine Learning to remove segments with no human speech.
-4.  **👤 Face Detection**: Ensures the speaker is visible in the frame.
-5.  **🔒 Privacy Blur**: (Optional) Blurs other faces or regions for privacy.
-6.  **🕵️ Debug Visualization**: (Optional) Renders a timeline of all decisions.
-7.  **🎞️ Final Merge**: Crossfades valid clips and normalizes audio to EBU R128 standards.
+## 📂 Output Structure
 
-## 📂 Folder Structure
-
-- `input_clips/`: Drop raw footage here.
-- `processing/`: Intermediate working files (cleared automatically).
-- `output_clips/`: Final and debug video outputs.
-- `run_pipeline.py`: Main execution script.
-
----
-
-## ⚠️ Troubleshooting
-
-- **"No chunks to merge"**: The pipeline rejected everything. Check:
-    - Does your video have audio? (VAD rejects silent files).
-    - Is your microphone working? (Check volume levels).
-    - Is your face visible? (Face detection requires good lighting).
-- **Audio Error**: Ensure `ffmpeg` is installed and supports `loudnorm`.
+*   `input_clips/`: Drop raw footage here.
+*   `output_clips/product_related`: Tech clips.
+*   `output_clips/funny`: Funny clips.
+*   `output_clips/general`: Vlog/Life clips.
+*   `output_videos/`: Final merged videos (Ready to watch).
+*   `processing/`: Intermediate artifacts (scores, logs).
