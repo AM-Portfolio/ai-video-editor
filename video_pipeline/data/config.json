@@ -9,7 +9,7 @@
     "face_confidence": 0.5,
     "crossfade_duration": 0.1,
     "privacy_blur": {
-        "enabled": true,
+        "enabled": false,
         "mode": "text_blur",
         "blur_strength": 25,
         "exclude_main_face": true,
@@ -28,7 +28,7 @@
         "regions": []
     },
     "decider": {
-        "keep_threshold": 0.50,
+        "keep_threshold": 0.15,
         "weights": {
             "face": 0.1,
             "motion": 0.2,
@@ -37,7 +37,7 @@
     },
     "action_policy": {
         "confident_keep": 0.50,
-        "borderline": 0.40
+        "borderline": 0.30
     },
     "semantic_policy": {
         "weights": {

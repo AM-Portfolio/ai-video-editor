@@ -80,6 +80,8 @@ Answer ONLY with 'SAFE' if it is highly specific and technical, or 'RISKY' if it
             cat = clip_data.get("category")
             text = clip_data.get("transcript")
             
+            print(f"   🤔 Analyzing clip {clip_id} for new keywords...", end="\r")
+
             # 1. Propose
             prompt = f"Identify the most specific 1 or 2 word technical phrase in this: '{text}'. Return ONLY the phrase."
             try:

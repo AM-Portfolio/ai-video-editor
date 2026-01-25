@@ -88,10 +88,12 @@ class SemanticTagger:
             print(f"   ⚠️ Transcription failed for {os.path.basename(clip_path)}: {e}")
             return ""
 
-    def classify_text(self, text):
+    def classify_text(self, text, context_buffer=None):
         """
-        Uses Regex/Keywords FIRST, then falls back to Together AI.
+        Uses Regex/Keywords FIRST, then falls back to Together AI with Context.
         Categories: product_related, funny, general
+        
+        context_buffer: List of dicts [{"text": "...", "category": "..."}, ...] from previous chunks.
         """
         if not text or len(text) < 10:
             return "general", "too_short"
@@ -113,6 +115,14 @@ class SemanticTagger:
         api_key = semantic_cfg.get("api_key")
         model = semantic_cfg.get("model", "ServiceNow-AI/Apriel-1.6-15b-Thinker")
 
+        # Build Context String
+        context_str = ""
+        if context_buffer:
+            context_str = "PREVIOUS CONTEXT (History of conversation):\n"
+            for item in context_buffer:
+                context_str += f"- [{item['category']}]: \"{item['text'][:50]}...\"\n"
+            context_str += "\n"
+
         prompt = f"""Classify this text into ONE category.
 Priority Order (if multiple match):
 1. product_related (HIGHEST PRIORITY - code, work, tech, app, features)
@@ -123,13 +133,14 @@ Rules:
 - If it mentions code/work AND is funny -> Label as 'product_related'.
 - If it is funny AND general -> Label as 'funny'.
 - Only label 'general' if it fits nothing else.
+- USE CONTEXT: If previous chunks were 'product_related' and this is a continuation, it is likely 'product_related'.
 
 Categories:
 - product_related
 - funny
 - general
 
-Text: "{text}"
+{context_str}CURRENT TEXT: "{text}"
 
 Answer ONLY with the category name (lowercase)."""
 
@@ -146,7 +157,7 @@ Answer ONLY with the category name (lowercase)."""
                 content = response.choices[0].message.content.strip().lower()
                 for cat in ["product_related", "funny", "general"]:
                     if cat in content:
-                        return cat, "llm"
+                        return cat, "llm_context"
             except Exception as e:
                  print(f"⚠️ Together AI call failed: {e}")
 
@@ -154,7 +165,7 @@ Answer ONLY with the category name (lowercase)."""
         return "general", "fallback"
 
     def run(self):
-        print("🏷️  Running Semantic Tagger...")
+        print("🏷️  Running Semantic Tagger (Context-Aware)...")
         
         if not os.path.exists(self.scores_path):
             print(f"⚠️ Scores file not found: {self.scores_path}")
@@ -190,7 +201,15 @@ Answer ONLY with the category name (lowercase)."""
 
         print(f"   Found {len(clip_paths)} processed clips available.")
         
-        for clip_id, metrics in scores.items():
+        # KEY CHANGE: Sort keys to ensure temporal order for context
+        # Assumes filenames are like 'chunk_0001.mp4' which sort lexicographically correctly
+        sorted_clip_ids = sorted(scores.keys())
+        
+        context_buffer = [] # Sliding window of last 3 items
+        
+        for clip_id in sorted_clip_ids:
+            metrics = scores[clip_id]
+            
             # 1. Check Quality Threshold
             q_score = self.get_quality_score(metrics)
             
@@ -206,16 +225,31 @@ Answer ONLY with the category name (lowercase)."""
                 continue
 
             # RESUME CHECK
+            # Even if resumed, we might need to READ the transcript to build context for NEXT chunk?
+            # For simplicity, if resumed, we try to grab existing text for context.
             if state_manager.is_step_done(clip_id, step_name) and clip_id in tags:
                 resumed_count += 1
+                # Add to context buffer from EXISTING tag
+                # Only if it has a real category
+                existing_cat = tags[clip_id].get("category", "general")
+                existing_text = tags[clip_id].get("transcript", "")
+                if existing_cat != "low_quality":
+                     context_buffer.append({"text": existing_text, "category": existing_cat})
+                     if len(context_buffer) > 3:
+                         context_buffer.pop(0)
                 continue
                 
             # 3. Transcribe
             print(f"   🎙️  Transcribing {clip_id} (Score: {q_score:.2f})...", end="\r")
             text = self.transcribe(path)
             
-            # 4. Classify
-            category, attribution = self.classify_text(text)
+            # 4. Classify with Context
+            category, attribution = self.classify_text(text, context_buffer)
+            
+            # Update Buffer
+            context_buffer.append({"text": text, "category": category})
+            if len(context_buffer) > 3:
+                context_buffer.pop(0)
             
             tags[clip_id] = {
                 "category": category,
@@ -226,7 +260,6 @@ Answer ONLY with the category name (lowercase)."""
             attr_label = f"[{attribution.upper()}]"
             print(f"   🏷️  {clip_id}: {category:15} {attr_label:10} \"{text[:30]}...\"")
             processed_count += 1
-            # print(f"   🏷️  {clip_id}: [{category}] \"{text[:30]}...\"")
             state_manager.mark_step_done(clip_id, step_name)
             
         # Clear line

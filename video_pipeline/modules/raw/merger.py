@@ -108,6 +108,25 @@ for category in CATEGORIES:
         else:
             files_found = True
             process_merge_logic(chunks, f"final_output_{category}")
+            
+    # NEW: Merge ALL kept categories into one "Master Video"
+    print(f"🎬 Merging MASTER video (All kept clips)...")
+    all_chunks = set()
+    for category in CATEGORIES:
+        category_dir = os.path.join("output_clips", category)
+        if os.path.exists(category_dir):
+            for f in os.listdir(category_dir):
+                if f.endswith(".mp4"):
+                    all_chunks.add(os.path.join(category_dir, f))
+    
+    # Sort by filename to ensure timeline order (chunk_001, chunk_002...)
+    # We use basename for sorting because paths differ
+    sorted_all_chunks = sorted(list(all_chunks), key=lambda x: os.path.basename(x))
+    
+    if len(sorted_all_chunks) > 1:
+        process_merge_logic(sorted_all_chunks, "final_output_master_raw")
+    else:
+        print("   ⚠️ Not enough total clips for Master Video.")
 
 if not files_found:
     print("⚠️ No clips found in any output category folder.")
