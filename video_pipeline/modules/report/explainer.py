@@ -7,11 +7,13 @@ from collections import Counter
 sys.path.append(os.getcwd())
 
 from core.logging import DecisionLog
+from core import path_utils
 
 class RunExplainer:
     def __init__(self):
-        self.summary_path = "processing/run_summary.json"
-        self.action_log_path = "processing/action_log.json"
+        proc_dir = path_utils.get_processing_dir()
+        self.summary_path = os.path.join(proc_dir, "run_summary.json")
+        self.action_log_path = os.path.join(proc_dir, "action_log.json")
         
     def _load_json(self, path):
         if not os.path.exists(path):
@@ -91,11 +93,12 @@ class RunExplainer:
     def generate_clip_explanations(self):
         """
         Generates detailed explanations for each clip.
-        Saves to processing/clip_explanations.json
+        Saves to user-specific processing/clip_explanations.json
         """
         print("🔍 Generating Clip Explanations...")
         
-        decisions_path = "processing/decisions.json"
+        proc_dir = path_utils.get_processing_dir()
+        decisions_path = os.path.join(proc_dir, "decisions.json")
         
         # Fallback to decision log or scores if decisions.json missing?
         # Ideally decisions.json should exist as Decider runs before Explainer.
@@ -144,7 +147,7 @@ class RunExplainer:
             expl_list.append(item)
              
         # Save
-        out_path = "processing/clip_explanations.json"
+        out_path = os.path.join(proc_dir, "clip_explanations.json")
         with open(out_path, "w") as f:
             json.dump(expl_list, f, indent=2)
             

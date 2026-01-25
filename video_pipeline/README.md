@@ -5,15 +5,12 @@ This project implements a professional-grade AI pipeline that transforms raw vid
 
 ## 🌟 Key Features
 
-*   **Voice-First Decisions:** Prioritizes content (speech) over visuals. If you are talking clearly, the clip is kept even if you are looking away (`config.json`).
-*   **Human-Supervised Knowledge Distillation:** Instead of blind learning, the AI proposes new search heuristics (Regex) after each run. You review and approve them in the dashboard to reduce future LLM costs without losing control.
-*   **Infinite Resilience (Resume Everywhere):** Every step and every individual chunk is tracked. If the system crashes or you stop it, it resumes exactly where it left off, saving hours of processing time.
-*   **Semantic Sorting:** Automatically routes clips into:
-    *   `product_related` (Coding, Tech)
-    *   `funny` (Jokes, Laughter)
-    *   `general` (Life updates - kept if voice is clear)
-*   **Centralized Decider**: A single "Brain" (`decider.py`) makes holistic decisions based on weighted scores and configurable logic.
-*   **Explainable AI**: Every decision is traced, analyzed, and explained. The system produces a human-readable narrative and detailed per-clip justifications.
+*   **Context-Aware Intelligence:** The AI remembers conversation history (Sliding Window). If you laugh during a deep technical explanation, it now understands that laughter is `product_related`, not just generic `funny`.
+*   **Voice-First Decisions:** Prioritizes content (speech) over visuals. High-Recall tuning ensures even quiet murmurs are captured (`-45dB` sensitivity).
+*   **Human-Supervised Knowledge Distillation:** The AI learns from your content. It identifies new technical terms ("deploy", "merge", "stock market") and updates its own knowledge base (`knowledge.py`) to get smarter over time.
+*   **Infinite Resilience (Resume Everywhere):** Every step and every individual chunk is tracked. Crashing is impossible to recover from; the system simply resumes.
+*   **Master Video Generation:** Automatically merges all kept clips into a single resilient timeline (`final_output_master_raw.mp4`), in addition to categorized topic videos.
+*   **Explainable AI:** Every decision is traced. Why was that clip dropped? The `clip_explanations.json` will tell you: "Low face visibility and no excitement."
 
 ## 🏗 Architecture
 

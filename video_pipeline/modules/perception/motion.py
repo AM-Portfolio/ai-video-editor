@@ -11,9 +11,10 @@ from core import config as cfg_loader
 from core.logging import DecisionLog
 from core.scoring import ScoreKeeper
 from core import state as state_manager
+from core import path_utils
 
 config = cfg_loader.load_config()
-BASE_DIR = "processing"
+BASE_DIR = path_utils.get_processing_dir()
 MOTION_THRESHOLD = config.get("motion_threshold", 30000)
 
 # Initialize loggers
@@ -49,13 +50,13 @@ import concurrent.futures
 
 def process_file(args):
     path = args
-    filename = os.path.basename(path)
+    # Unique ID: segment_xxxx/chunk_yyyy.mp4
+    clip_id = os.path.relpath(path, BASE_DIR)
     step_name = "🏃 Motion Scoring"
     
     # RESUME CHECK
-    if state_manager.is_step_done(filename, step_name):
-        # We still need to print something so the log-parser in run_pipeline doesn't think it stalled
-        print(f"   ⏩ {filename} -> Resumed (Already Scored)")
+    if state_manager.is_step_done(clip_id, step_name):
+        print(f"   ⏩ {clip_id} -> Resumed (Already Scored)")
         return
 
     try:
@@ -79,7 +80,7 @@ def process_file(args):
         score = raw_motion / (raw_motion + MOTION_THRESHOLD)
         
         # Persist Score
-        scorer.update_score(filename, "motion_score", score)
+        scorer.update_score(clip_id, "motion_score", score)
         
         # Log Trace
         logger.log(
@@ -88,16 +89,17 @@ def process_file(args):
             confidence=1.0,
             reason="motion_analysis",
             metrics={
+                "clip_id": clip_id,
                 "raw_motion": float(raw_motion),
                 "quality_score": float(score)
             }
         )
         
-        print(f"   - {filename} -> Scored: {score:.3f}")
+        print(f"   - {clip_id} -> Scored: {score:.3f}")
         # Mark as done in state
-        state_manager.mark_step_done(filename, step_name)
+        state_manager.mark_step_done(clip_id, step_name)
     except Exception as e:
-        print(f"❌ Error processing {filename}: {e}")
+        print(f"❌ Error processing {clip_id}: {e}")
 
 if __name__ == "__main__":
     print(f"🕵️  Scanning {BASE_DIR} for chunks (Scoring Mode)...")

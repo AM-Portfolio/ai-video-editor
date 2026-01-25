@@ -17,10 +17,11 @@ sys.path.append(os.getcwd())
 
 from core import config as cfg_loader
 from core import state as state_manager
+from core import path_utils
 
 config = cfg_loader.load_config()
 
-INPUT_DIR = "processing"
+INPUT_DIR = path_utils.get_processing_dir()
 # Use config values or safe defaults
 MIN_CHUNK = config.get("min_chunk_duration", 1.5)
 MAX_CHUNK = config.get("max_chunk_duration", 15.0)

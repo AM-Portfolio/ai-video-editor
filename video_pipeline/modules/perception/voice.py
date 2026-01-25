@@ -9,10 +9,9 @@ import shutil
 sys.path.append(os.getcwd())
 
 from core import config as cfg_loader
+from core import path_utils
 config = cfg_loader.load_config()
-BASE_DIR = "processing"
-
-BASE_DIR = "processing"
+BASE_DIR = path_utils.get_processing_dir()
 
 print("🧠 Loading Silero VAD Model...")
 model, utils = torch.hub.load(
@@ -98,11 +97,11 @@ import concurrent.futures
 
 def process_file(args):
     path = args
-    filename = os.path.basename(path)
+    clip_id = os.path.relpath(path, BASE_DIR)
     step_name = "🗣️  VAD (Voice) Scoring"
     
-    if state_manager.is_step_done(filename, step_name):
-        print(f"   ⏩ {filename} -> Resumed (Already Scored)")
+    if state_manager.is_step_done(clip_id, step_name):
+        print(f"   ⏩ {clip_id} -> Resumed (Already Scored)")
         return
 
     if not os.path.exists(path):
@@ -112,7 +111,7 @@ def process_file(args):
         speech_score = get_speech_score(path)
         
         # Persist Score
-        scorer.update_score(filename, "vad_score", speech_score)
+        scorer.update_score(clip_id, "vad_score", speech_score)
         
         # Log decision
         logger.log(
@@ -121,15 +120,16 @@ def process_file(args):
             confidence=1.0, 
             reason="speech_analysis",
             metrics={
+                "clip_id": clip_id,
                 "speech_ratio": round(speech_score, 2)
             }
         )
         
-        print(f"   - {filename} -> Scored: {speech_score:.3f}")
+        print(f"   - {clip_id} -> Scored: {speech_score:.3f}")
         # Mark as done
-        state_manager.mark_step_done(filename, step_name)
+        state_manager.mark_step_done(clip_id, step_name)
     except Exception as e:
-        print(f"❌ Error processing {filename}: {e}")
+        print(f"❌ Error processing {clip_id}: {e}")
 
 if __name__ == "__main__":
     print(f"🎙️  Scanning {BASE_DIR} for human speech (VAD Scoring Mode)...")

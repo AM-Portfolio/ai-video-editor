@@ -8,12 +8,14 @@ sys.path.append(os.getcwd())
 from core.logging import DecisionLog
 from core.scoring import ScoreKeeper
 from core import config as cfg_loader
+from core import path_utils
 
 class DecisionAnalytics:
     def __init__(self, config_path="config.json"):
-        self.scores_path = "processing/scores.json"
-        self.log_path = "processing/decision_log.json"
-        self.summary_path = "processing/run_summary.json"
+        proc_dir = path_utils.get_processing_dir()
+        self.scores_path = os.path.join(proc_dir, "scores.json")
+        self.log_path = os.path.join(proc_dir, "decision_log.json")
+        self.summary_path = os.path.join(proc_dir, "run_summary.json")
         self.config = self._load_config(config_path)
 
     def _load_config(self, path):

@@ -2,8 +2,13 @@ import json
 import os
 import fcntl
 
+from core import path_utils
+
 class ScoreKeeper:
-    def __init__(self, scores_file="processing/scores.json"):
+    def __init__(self, scores_file=None):
+        if scores_file is None:
+            proc_dir = path_utils.get_processing_dir()
+            scores_file = os.path.join(proc_dir, "scores.json")
         self.scores_file = scores_file
         if not os.path.exists(os.path.dirname(scores_file)):
             os.makedirs(os.path.dirname(scores_file), exist_ok=True)

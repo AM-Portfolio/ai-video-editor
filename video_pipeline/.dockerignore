@@ -1,0 +1,10 @@
+input_clips/
+output_clips/
+output_videos/
+processing/
+data/
+**/*.mp4
+**/*.pyc
+__pycache__/
+.git/
+.streamlit/

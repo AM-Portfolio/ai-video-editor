@@ -8,12 +8,15 @@ import datetime
 
 from core.logging import DecisionLog
 import fcntl
+from core import path_utils
 
 class ActionExecutor:
-    def __init__(self, log_file="processing/action_log.json"):
-        self.log_file = log_file
-        self.base_processing_dir = "processing" 
-        # We need to look into subfolders since filters moved them around.
+    def __init__(self, log_file=None):
+        self.user_id = path_utils.get_user_id()
+        proc_dir = path_utils.get_processing_dir()
+        self.log_file = log_file or os.path.join(proc_dir, "action_log.json")
+        self.base_processing_dir = proc_dir
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
         # But Phase 2 normalized everything to:
         # - keep/speech (if VAD ran)
         # - keep (if motion ran)
@@ -38,19 +41,27 @@ class ActionExecutor:
         executed_count = 0
         
         for item in plan:
-            clip_id = item["clip_id"] # This is usually the filename e.g. "chunk_001.mp4"
+            clip_id = item["clip_id"] # e.g. "segment_0000/chunk_0000.mp4"
             action = item["action"]
             dest_folder = item["destination"]
             
             # 1. Locate Source
-            src_path = self._find_clip_path(clip_id)
-            if not src_path:
+            src_path = os.path.join(self.base_processing_dir, clip_id)
+            if not os.path.exists(src_path):
+                # Fallback to search if path is just a filename
+                src_path = self._find_clip_path(clip_id)
+                
+            if not src_path or not os.path.exists(src_path):
                 print(f"   ⚠️ Could not find source file for {clip_id}. Skipping.")
                 continue
                 
+            # Use flattened filename for the final output to avoid collision
+            # segment_0000/chunk_0000.mp4 -> segment_0000_chunk_0000.mp4
+            filename = clip_id.replace(os.path.sep, "_")
+            
             # 2. Prepare Destination
             os.makedirs(dest_folder, exist_ok=True)
-            dst_path = os.path.join(dest_folder, clip_id)
+            dst_path = os.path.join(dest_folder, filename)
             
             # 3. Execute Move/Copy
             try:
@@ -95,12 +106,19 @@ class ActionExecutor:
             print(f"   ⚠️ Failed to log action: {e}")
 
 if __name__ == "__main__":
-    executor = ActionExecutor()
-    plan_path = "processing/action_plan.json"
+    proc_dir = path_utils.get_processing_dir()
+    plan_path = os.path.join(proc_dir, "action_plan.json")
     
-    if os.path.exists(plan_path):
-        with open(plan_path, "r") as f:
-            plan = json.load(f)
-        executor.execute_plan(plan)
-    else:
-        print("⚠️ No action plan found to execute.")
+    try:
+        if os.path.exists(plan_path):
+            with open(plan_path, "r") as f:
+                plan = json.load(f)
+            executor = ActionExecutor()
+            executor.execute_plan(plan)
+        else:
+            print("⚠️ No action plan found to execute.")
+    except Exception as e:
+        import traceback
+        print(f"❌ FATAL ERROR in Executor: {e}")
+        traceback.print_exc()
+        sys.exit(1)

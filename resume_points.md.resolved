@@ -18,7 +18,8 @@ Here is exactly how to frame it on your resume.
 *   Architected a **7-layer autonomous decision pipeline** to process raw video footage into categorized highlights without human intervention.
 *   Designed a decoupled architecture separating **Perception** (OpenCV, VAD), **Cognition** (Whisper, LLMs), and **Execution** (FFmpeg), ensuring modularity and scalability.
 *   Implemented a **policy-driven decision engine** that weighs multi-modal signals (Visual Quality + Semantic Relevance) to make complex editorial judgments.
-*   Optimized processing speed by implementing a **Regex-First Hybrid Classifier** (Hinglish/English), reducing LLM API costs by 60% while maintaining 95% accuracy.
+*   Engineered a **Context-Aware Semantic Tagger** using sliding window attention, enabling the AI to understand "Laughter" as "Technical" if it occurs during a product demo.
+*   Built a **Self-Healing State Machine** that tracks progress at the chunk level, allowing the pipeline to resume seamlessly from crash points without data loss.
 *   **Tech Stack**: Python, OpenCV, PyTorch, OpenAI Whisper, Together AI (LLM), FFmpeg, Docker.
 
 **Option 2: ML / AI Engineering (Focus on Models & Data)**

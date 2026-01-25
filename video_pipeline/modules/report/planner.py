@@ -1,5 +1,11 @@
 import json
 import os
+import sys
+
+# Add project root to sys.path for modular imports
+sys.path.append(os.getcwd())
+
+from core import path_utils
 
 class ActionPlanner:
     def __init__(self, config_path="config.json"):
@@ -30,9 +36,13 @@ class ActionPlanner:
             clip_id = d.get("clip_id")
             score = d.get("confidence", 0.0) # Using confidence/final_score
             
+            # Determine User ID for path segregation
+            user_id = path_utils.get_user_id()
+            output_root = path_utils.get_output_clips_dir()
+            
             # Default action
             action = "discard"
-            destination = "output_clips/discarded"
+            destination = os.path.join(output_root, "discarded")
             reason_suffix = ""
             
             # Determine Action based on Decider's explicit decision
@@ -44,17 +54,17 @@ class ActionPlanner:
                 category = d.get("semantic_category", "general")
                 # Normalize category folder name (e.g. product_related -> product_related)
                 if category in ["product_related", "funny", "general"]:
-                    destination = f"output_clips/{category}"
+                    destination = os.path.join(output_root, category)
                 else:
-                    destination = "output_clips/selected"
+                    destination = os.path.join(output_root, "selected")
             elif decision_raw == "quarantine":
                 action = "quarantine"
-                destination = "output_clips/quarantine"
+                destination = os.path.join(output_root, "quarantine")
                 reason_suffix = " (Borderline)"
             else:
                 # Discard
                 action = "discard"
-                destination = "output_clips/discarded"
+                destination = os.path.join(output_root, "discarded")
             
             # Formulate human readable reason
             top_factors = d.get("top_factors", [])
@@ -84,8 +94,9 @@ class ActionPlanner:
 
 if __name__ == "__main__":
     planner = ActionPlanner()
-    decisions_path = "processing/decisions.json"
-    plan_path = "processing/action_plan.json"
+    proc_dir = path_utils.get_processing_dir()
+    decisions_path = os.path.join(proc_dir, "decisions.json")
+    plan_path = os.path.join(proc_dir, "action_plan.json")
     
     if os.path.exists(decisions_path):
         with open(decisions_path, "r") as f:

@@ -20,6 +20,8 @@ processing/
 output_clips/
 input_clips/*.mp4
 temp_normalized/
+output_videos/
+data/
 
 # Logs
 logs/

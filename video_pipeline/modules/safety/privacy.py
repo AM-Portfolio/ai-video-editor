@@ -1,35 +1,51 @@
-#!/usr/bin/env python3
-"""
-Privacy Filter - Step 9 of the Video Pipeline
-Blurs sensitive content (faces, background, regions) for privacy.
-"""
-
-import mediapipe as mp
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
-import sys
-import io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 import cv2
 import os
 import json
 import numpy as np
 import re
-import easyocr
 import sys
+import io
+
 # Add project root to sys.path for modular imports
 sys.path.append(os.getcwd())
 
 import core.state as state_manager
 from core import config as cfg_loader
 from core.logging import DecisionLog
+from core import path_utils
 
-# Initialize OCR Reader (English)
-reader = easyocr.Reader(['en'], gpu=False) # GPU False for better terminal stability in this environment
+# Global placeholders for lazy loading
+reader = None
+detector = None
+
+def get_reader():
+    """Lazily load EasyOCR reader."""
+    global reader
+    if reader is None:
+        import easyocr
+        print("🧠 Loading EasyOCR Reader...")
+        reader = easyocr.Reader(['en'], gpu=False)
+    return reader
+
+def get_detector():
+    """Lazily load MediaPipe Face Detector."""
+    global detector, MODEL_PATH, privacy_config
+    if detector is None:
+        import mediapipe as mp
+        from mediapipe.tasks import python
+        from mediapipe.tasks.python import vision
+        print("🧠 Loading MediaPipe Face Detector (Privacy Mode)...")
+        base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
+        options = vision.FaceDetectorOptions(
+            base_options=base_options, 
+            min_detection_confidence=privacy_config.get("detection_confidence", 0.15)
+        )
+        detector = vision.FaceDetector.create_from_options(options)
+    return detector
 
 config = cfg_loader.load_config()
 
-BASE_DIR = "processing"
+BASE_DIR = path_utils.get_processing_dir()
 MODEL_PATH = "data/detector.tflite"
 
 # Privacy config with defaults
@@ -114,14 +130,6 @@ def process_video_face_blur(input_path, output_path):
     """Blur all faces except the main speaker (largest face)"""
     print(f"🔒 Applying face blur to {os.path.basename(input_path)}...")
     
-    # Initialize face detector
-    base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
-    options = vision.FaceDetectorOptions(
-        base_options=base_options, 
-        min_detection_confidence=privacy_config.get("detection_confidence", 0.15)
-    )
-    detector = vision.FaceDetector.create_from_options(options)
-    
     cap = cv2.VideoCapture(input_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -129,6 +137,8 @@ def process_video_face_blur(input_path, output_path):
     
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    
+    import mediapipe as mp
     
     while cap.isOpened():
         ret, frame = cap.read()
@@ -138,7 +148,7 @@ def process_video_face_blur(input_path, output_path):
         # Detect faces
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-        detection_result = detector.detect(mp_image)
+        detection_result = get_detector().detect(mp_image)
         
         if detection_result.detections:
             detections = detection_result.detections
@@ -201,9 +211,7 @@ def process_video_text_blur(input_path, output_path):
     print(f"🔒 Applying smart text blur to {os.path.basename(input_path)}...")
     
     # Initialize face detector for protection
-    base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
-    options = vision.FaceDetectorOptions(base_options=base_options, min_detection_confidence=0.15)
-    detector = vision.FaceDetector.create_from_options(options)
+    detector = get_detector()
     
     cap = cv2.VideoCapture(input_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -238,7 +246,7 @@ def process_video_text_blur(input_path, output_path):
         # 2. OCR Detection (Every N frames)
         if frame_count % frame_interval == 1:
             active_blur_boxes = []
-            ocr_results = reader.readtext(frame)
+            ocr_results = get_reader().readtext(frame)
             
             for (bbox, text, prob) in ocr_results:
                 if is_sensitive(text):

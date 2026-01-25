@@ -11,9 +11,10 @@ import shutil
 sys.path.append(os.getcwd())
 
 from core import config as cfg_loader
+from core import path_utils
 config = cfg_loader.load_config()
 
-BASE_DIR = "processing"
+BASE_DIR = path_utils.get_processing_dir()
 MODEL_PATH = "data/detector.tflite"
 
 print("🧠 Loading Face Detection Model (Tasks API)...")
@@ -32,10 +33,13 @@ if not os.path.exists(MODEL_PATH):
         else:
             raise FileNotFoundError("Could not find detector.tflite model.")
 
-base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
-FACE_CONFIDENCE = config.get("face_confidence", 0.5)
-options = vision.FaceDetectorOptions(base_options=base_options, min_detection_confidence=FACE_CONFIDENCE)
-detector = vision.FaceDetector.create_from_options(options)
+def get_detector():
+    """Safety wrapper for MediaPipe detector initialization in forked processes."""
+    global MODEL_PATH
+    base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
+    FACE_CONFIDENCE = config.get("face_confidence", 0.5)
+    options = vision.FaceDetectorOptions(base_options=base_options, min_detection_confidence=FACE_CONFIDENCE)
+    return vision.FaceDetector.create_from_options(options)
 
 from core.logging import DecisionLog
 from core.scoring import ScoreKeeper
@@ -46,6 +50,7 @@ scorer = ScoreKeeper()
 
 def has_face(video_path, num_samples=10):
     """Check if face is present and return visibility ratio (0.0 - 1.0)"""
+    detector = get_detector()
     cap = cv2.VideoCapture(video_path)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
@@ -88,11 +93,11 @@ import concurrent.futures
 
 def process_file(args):
     path = args
-    filename = os.path.basename(path)
+    clip_id = os.relpath(path, BASE_DIR)
     step_name = "👤 Face Detection Scoring"
 
-    if state_manager.is_step_done(filename, step_name):
-        print(f"   ⏩ {filename} -> Resumed (Already Scored)")
+    if state_manager.is_step_done(clip_id, step_name):
+        print(f"   ⏩ {clip_id} -> Resumed (Already Scored)")
         return
     
     if not os.path.exists(path):
@@ -102,7 +107,7 @@ def process_file(args):
         visibility_score = has_face(path)
         
         # Persist Score
-        scorer.update_score(filename, "face_score", visibility_score)
+        scorer.update_score(clip_id, "face_score", visibility_score)
         
         # Log decision
         logger.log(
@@ -111,15 +116,16 @@ def process_file(args):
             confidence=1.0, 
             reason="face_analysis",
             metrics={
+                "clip_id": clip_id,
                 "face_visibility": round(visibility_score, 2)
             }
         )
         
-        print(f"   - {filename} -> Scored: {visibility_score:.3f}")
+        print(f"   - {clip_id} -> Scored: {visibility_score:.3f}")
         # Mark as done
-        state_manager.mark_step_done(filename, step_name)
+        state_manager.mark_step_done(clip_id, step_name)
     except Exception as e:
-        print(f"❌ Error processing {filename}: {e}")
+        print(f"❌ Error processing {clip_id}: {e}")
 
 if __name__ == "__main__":
     print(f"👤 Scanning {BASE_DIR} for face presence (Scoring Mode)...")

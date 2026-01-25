@@ -7,6 +7,7 @@ sys.path.append(os.getcwd())
 from core.logging import DecisionLog
 from core.scoring import ScoreKeeper
 from core import config as cfg_loader
+from core import path_utils
 
 class Decider:
     def __init__(self, config_path=None):
@@ -21,11 +22,15 @@ class Decider:
         except FileNotFoundError:
             return {}
 
-    def decide_clips(self, scores_path="processing/scores.json"):
+    def decide_clips(self, scores_path=None):
         """
         Returns list of decision objects per clip.
-        Reads scores from the provided path (default: processing/scores.json).
+        Reads scores from the provided path (default: user-specific scores.json).
         """
+        proc_dir = path_utils.get_processing_dir()
+        if scores_path is None:
+            scores_path = os.path.join(proc_dir, "scores.json")
+            
         if not os.path.exists(scores_path):
             print(f"⚠️ Scores file not found: {scores_path}")
             return []
@@ -38,7 +43,7 @@ class Decider:
                 return []
                 
         # Load Semantic Tags
-        semantic_path = "processing/semantic_tags.json"
+        semantic_path = os.path.join(proc_dir, "semantic_tags.json")
         semantic_tags = {}
         if os.path.exists(semantic_path):
             with open(semantic_path) as f:
@@ -143,8 +148,8 @@ class Decider:
             tag_str = f"[{tag.upper()}]" if tag != "unknown" else ""
             print(f"   {icon} {clip_id}: {final_score:.2f} {tag_str} -> {decision_enum.upper()}")
             
-        # Save Decisions for downstream steps
-        decisions_path = "processing/decisions.json"
+        # Save Decisions for downstream steps (User Specific)
+        decisions_path = os.path.join(proc_dir, "decisions.json")
         with open(decisions_path, "w") as f:
             json.dump(decisions, f, indent=2)
             

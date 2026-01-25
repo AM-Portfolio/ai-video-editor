@@ -3,8 +3,13 @@ import os
 import fcntl
 from datetime import datetime
 
+from core import path_utils
+
 class DecisionLog:
-    def __init__(self, log_file="processing/decision_log.json"):
+    def __init__(self, log_file=None):
+        if log_file is None:
+            proc_dir = path_utils.get_processing_dir()
+            log_file = os.path.join(proc_dir, "decision_log.json")
         self.log_file = log_file
         # Ensure log file exists (create if not)
         if not os.path.exists(log_file):

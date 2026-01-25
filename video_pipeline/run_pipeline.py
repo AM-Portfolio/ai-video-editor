@@ -1,10 +1,12 @@
 import subprocess
 import sys
+import argparse
 import time
 import os
 import shutil
 import re
 from core import state as state_manager
+from core import path_utils
 
 STEPS = [
     ("✂️  Splitting Video", "modules/raw/splitter.py"),
@@ -61,7 +63,7 @@ def ingest_files(logger_callback=None):
         dst = os.path.join(PROCESSING_DIR, clean_name)
         
         # RESUME CAPABILITY: Check if final output exists
-        OUTPUT_CLIPS_DIR = "output_clips"
+        OUTPUT_CLIPS_DIR = path_utils.get_output_clips_dir()
         final_output_path = os.path.join(OUTPUT_CLIPS_DIR, f"final_{clean_name}")
         
         if os.path.exists(final_output_path):
@@ -215,13 +217,42 @@ def run_step(name, script, logger_callback=None):
         if logger_callback: logger_callback(msg)
         return False
 
-def main(logger_callback=None):
-    msg = "🚀 Starting AI Video Pipeline..."
+def main(logger_callback=None, user_id=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--user_id", default="default_user", help="User ID for multi-user segregation")
+    # Only parse args if user_id not provided programmatically
+    if user_id is None:
+        args, unknown = parser.parse_known_args()
+        user_id = args.user_id
+    
+    # Enable Multi-User Context for all subprocesses
+    os.environ["PIPELINE_USER_ID"] = user_id
+    
+    # Re-initialize the global manager for THIS process to use the correct user_id
+    state_manager._global_manager = state_manager.StateManager(user_id)
+    
+    msg = f"🚀 Starting AI Video Pipeline (User: {user_id})..."
     print(msg)
     if logger_callback: logger_callback(msg)
     
     total_start = time.time()
     
+    # We must update ingest_files to look in the USER SPECIFIC directory?
+    # run_pipeline.py defines INPUT_CLIPS_DIR = "input_clips" globally.
+    # This implies the running process CWD must be correct, OR we must update those globals.
+    # For now, let's assume segregation happens via 'input_clips/{user_id}'.
+    # But run_pipeline.py logic currently assumes 'input_clips' at root.
+    # If we want data segregation, we must update INPUT_CLIPS_DIR to "input_clips/{user_id}".
+    
+    # Update Globals for this run
+    global INPUT_CLIPS_DIR, PROCESSING_DIR
+    INPUT_CLIPS_DIR = os.path.join("input_clips", user_id)
+    PROCESSING_DIR = os.path.join("processing", user_id)
+    
+    # Ensure dirs exist
+    os.makedirs(INPUT_CLIPS_DIR, exist_ok=True)
+    os.makedirs(PROCESSING_DIR, exist_ok=True)
+
     if not ingest_files(logger_callback):
         msg = "\n🛑 Nothing to process. Exiting."
         print(msg)

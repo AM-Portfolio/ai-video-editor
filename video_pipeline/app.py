@@ -15,34 +15,90 @@ st.set_page_config(
     layout="wide"
 )
 
-# Paths
+# Paths (Dynamic Base)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 from core.scoring import ScoreKeeper
 from core import state as state_manager
 from core import config as cfg_loader
+from core import path_utils
 
-# Config Path Adaptation
-CONFIG_PATH = os.path.join(BASE_DIR, "data", "config.json")
-KEYWORDS_PATH = os.path.join(BASE_DIR, "data", "keywords_active.json")
-INPUT_CLIPS_DIR = os.path.join(BASE_DIR, "input_clips")
-FINAL_OUTPUT_DIR = os.path.join(BASE_DIR, "output_clips")
 
-# Ensure directories exist
-os.makedirs(INPUT_CLIPS_DIR, exist_ok=True)
+DEFAULT_CONFIG = {
+    "silence_db": -30,
+    "silence_duration": 0.5,
+    "privacy_blur": {
+        "enabled": False,
+        "mode": "face_blur",
+        "blur_strength": 25,
+        "exclude_main_face": True
+    },
+    "decider": {
+        "keep_threshold": 0.50,
+        "weights": {"face": 0.1, "motion": 0.2, "speech": 0.7}
+    },
+    "semantic_policy": {
+        "weights": {"product_related": 1.0, "funny": 1.0, "general": 0.9}
+    },
+    "self_learning": True
+}
 
 def load_config():
+    # Config is currently global, but maybe should be per-user?
+    # For MVP, shared config is acceptable, or use user folder.
+    # Let's use global config for now to keep it simple.
+    CONFIG_PATH = os.path.join(BASE_DIR, "data", "config.json")
     if os.path.exists(CONFIG_PATH):
-        with open(CONFIG_PATH, 'r') as f:
-            return json.load(f)
-    return {}
+        try:
+            with open(CONFIG_PATH, 'r') as f:
+                return json.load(f)
+        except: return DEFAULT_CONFIG.copy() # Fallback
+    return DEFAULT_CONFIG.copy() # Default
 
 def save_config(new_config):
-    with open(CONFIG_PATH, 'w') as f:
-        json.dump(new_config, f, indent=4)
+    CONFIG_PATH = os.path.join(BASE_DIR, "data", "config.json")
+    try:
+        with open(CONFIG_PATH, 'w') as f:
+            json.dump(new_config, f, indent=4)
+    except: pass
 
 def main():
     st.title("🎥 AI Video Editor Pipeline")
-    st.markdown("Upload raw footage, configure AI settings, and generate a polished video.")
+    
+    # ---------------------------------------------------------
+    # 🔐 AUTHENTICATION LAYER
+    # ---------------------------------------------------------
+    if "user_id" not in st.session_state:
+        st.markdown("### 🔐 Login to Studio")
+        with st.form("login_form"):
+            user_input = st.text_input("Enter Session Name / User ID", placeholder="e.g. creative_director_01")
+            submitted = st.form_submit_button("Start Session")
+            if submitted and user_input:
+                st.session_state["user_id"] = user_input.strip().replace(" ", "_")
+                st.rerun()
+        st.info("👋 This is a multi-user system. Your data is isolated by your Session ID.")
+        return
+
+    user_id = st.session_state["user_id"]
+    st.sidebar.markdown(f"👤 **User:** `{user_id}`")
+    if st.sidebar.button("🚪 Logout"):
+        del st.session_state["user_id"]
+        st.rerun()
+
+    # ---------------------------------------------------------
+    # 📂 USER PATHS (Segregated)
+    # ---------------------------------------------------------
+    INPUT_CLIPS_DIR = path_utils.get_input_clips_dir()
+    FINAL_OUTPUT_DIR = path_utils.get_output_clips_dir()
+    PROCESSING_DIR = path_utils.get_processing_dir()
+    OUTPUT_VIDEOS_DIR = path_utils.get_output_videos_dir()
+    
+    # Legacy alias for display logic
+    FINAL_VIDEO_DIR = OUTPUT_VIDEOS_DIR
+    
+    # Ensure User Dirs
+    os.makedirs(INPUT_CLIPS_DIR, exist_ok=True)
+    
+    st.markdown(f"Upload raw footage to your workspace (`{user_id}`), configure AI settings, and generate a polished video.")
 
     # Sidebar: Configuration
     st.sidebar.header("⚙️ Configuration")
@@ -60,42 +116,82 @@ def main():
     if isinstance(raw_silence, str):
         try: raw_silence = int(raw_silence.replace("dB", "").strip())
         except: raw_silence = -30
-    silence_db = st.sidebar.slider("Silence Threshold (dB)", -60, -10, int(raw_silence))
-    silence_duration = st.sidebar.number_input("Min Silence Duration (s)", 0.1, 5.0, float(config.get("silence_duration", 0.5)))
+    silence_db = st.sidebar.slider(
+        "Silence Threshold (dB)", -60, -10, int(raw_silence),
+        help="Volume level considered 'silence'. \n- **Lower (-60dB)**: Sensitive, detects faint whispers.\n- **Higher (-10dB)**: Strict, background noise is ignored."
+    )
+    silence_duration = st.sidebar.number_input(
+        "Min Silence Duration (s)", 0.1, 5.0, float(config.get("silence_duration", 0.5)),
+        help="Minimum duration of quietness required to trigger a cut.\n- **Increase**: To keep natural pauses in speech.\n- **Decrease**: For tighter, faster-paced cuts."
+    )
 
     # Privacy Blur Settings
     st.sidebar.divider()
     st.sidebar.subheader("🔒 Privacy Blur")
-    blur_enabled = st.sidebar.checkbox("Enable Privacy Blur", config.get("privacy_blur", {}).get("enabled", False))
+    blur_enabled = st.sidebar.checkbox(
+        "Enable Privacy Blur", config.get("privacy_blur", {}).get("enabled", False),
+        help="If enabled, the AI will detect and blur sensitive regions (faces/text) to protect privacy."
+    )
     blur_mode = st.sidebar.selectbox(
         "Blur Mode", 
         ["face_blur", "text_blur", "region_blur"], 
-        index=0 if config.get("privacy_blur", {}).get("mode") == "face_blur" else 1 if config.get("privacy_blur", {}).get("mode") == "text_blur" else 2
+        index=0 if config.get("privacy_blur", {}).get("mode") == "face_blur" else 1 if config.get("privacy_blur", {}).get("mode") == "text_blur" else 2,
+        help="**Face**: Blurs people.\n**Text**: Blurs overlay text/screens.\n**Region**: Blurs specific coordinates."
     )
-    blur_strength = st.sidebar.slider("Blur Strength", 1, 100, config.get("privacy_blur", {}).get("blur_strength", 25))
-    exclude_main_face = st.sidebar.checkbox("Exclude Main Speaker", config.get("privacy_blur", {}).get("exclude_main_face", True))
+    blur_strength = st.sidebar.slider(
+        "Blur Strength", 1, 100, config.get("privacy_blur", {}).get("blur_strength", 25),
+        help="Intensity of the blur effect.\n- **Higher**: More opaque/pixelated.\n- **Lower**: Softer, semi-transparent."
+    )
+    exclude_main_face = st.sidebar.checkbox(
+        "Exclude Main Speaker", config.get("privacy_blur", {}).get("exclude_main_face", True),
+        help="Smart Safe-List: Attempts to identify the active speaker and keeps their face clear, while blurring others in the background."
+    )
 
     # Decider Policy Settings
     st.sidebar.divider()
     st.sidebar.subheader("⚖️ Decider Policy")
-    keep_threshold = st.sidebar.slider("Keep Threshold", 0.0, 1.0, float(config.get("decider", {}).get("keep_threshold", 0.50)))
+    keep_threshold = st.sidebar.slider(
+        "Keep Threshold", 0.0, 1.0, float(config.get("decider", {}).get("keep_threshold", 0.50)),
+        help="Quality Control Gate.\n- **High (0.8+)**: Keeps only 5-Star perfect clips.\n- **Low (0.3)**: Include rough drafts and average shots."
+    )
     
     st.sidebar.caption("Scoring Weights (Sum should be 1.0 ideally)")
-    w_face = st.sidebar.slider("Face Visibility Weight", 0.0, 1.0, float(config.get("decider", {}).get("weights", {}).get("face", 0.1)))
-    w_motion = st.sidebar.slider("Motion Weight", 0.0, 1.0, float(config.get("decider", {}).get("weights", {}).get("motion", 0.2)))
-    w_speech = st.sidebar.slider("Speech Presence Weight", 0.0, 1.0, float(config.get("decider", {}).get("weights", {}).get("speech", 0.7)))
+    w_face = st.sidebar.slider(
+        "Face Visibility Weight", 0.0, 1.0, float(config.get("decider", {}).get("weights", {}).get("face", 0.1)),
+        help="Importance of seeing a clear face.\nIncrease this for interview/vlog content."
+    )
+    w_motion = st.sidebar.slider(
+        "Motion Weight", 0.0, 1.0, float(config.get("decider", {}).get("weights", {}).get("motion", 0.2)),
+        help="Importance of movement.\nIncrease this for action sports or dynamic B-Roll."
+    )
+    w_speech = st.sidebar.slider(
+        "Speech Presence Weight", 0.0, 1.0, float(config.get("decider", {}).get("weights", {}).get("speech", 0.7)),
+        help="Importance of audio/dialogue.\nHigh values prioritize clips with clear talking."
+    )
 
     # Semantic Policy Settings
     st.sidebar.divider()
     st.sidebar.subheader("🏷️ Semantic Weights")
-    s_product = st.sidebar.slider("Product Related Influence", 0.0, 1.0, float(config.get("semantic_policy", {}).get("weights", {}).get("product_related", 1.0)))
-    s_funny = st.sidebar.slider("Funny Influence", 0.0, 1.0, float(config.get("semantic_policy", {}).get("weights", {}).get("funny", 1.0)))
-    s_general = st.sidebar.slider("General Content Influence", 0.0, 1.0, float(config.get("semantic_policy", {}).get("weights", {}).get("general", 0.9)))
+    s_product = st.sidebar.slider(
+        "Product Related Influence", 0.0, 1.0, float(config.get("semantic_policy", {}).get("weights", {}).get("product_related", 1.0)),
+        help="How much the AI prompts 'Product Features', 'Demo', or 'Unboxing'."
+    )
+    s_funny = st.sidebar.slider(
+        "Funny Influence", 0.0, 1.0, float(config.get("semantic_policy", {}).get("weights", {}).get("funny", 1.0)),
+        help="How much the AI hunts for jokes, laughter, or funny errors."
+    )
+    s_general = st.sidebar.slider(
+        "General Content Influence", 0.0, 1.0, float(config.get("semantic_policy", {}).get("weights", {}).get("general", 0.9)),
+        help="Baseline interest in standard storytelling clips."
+    )
 
     # Learning Policy
     st.sidebar.divider()
     st.sidebar.subheader("🤖 Intelligence")
-    self_learning = st.sidebar.checkbox("Enable Self-Learning", config.get("self_learning", True), help="Automatically improve regex keywords based on LLM output after each run.")
+    self_learning = st.sidebar.checkbox(
+        "Enable Self-Learning", config.get("self_learning", True), 
+        help="If enabled, the AI analyzes its own results to discover NEW keywords from your footage to use in future runs."
+    )
 
     # Save Config Button
     if st.sidebar.button("💾 Save Settings"):
@@ -121,6 +217,12 @@ def main():
         save_config(config)
         st.sidebar.success("Settings saved!")
 
+    if st.sidebar.button("♻️ Reset to Defaults"):
+        save_config(DEFAULT_CONFIG)
+        st.success("Configuration reset to defaults!")
+        time.sleep(0.5)
+        st.rerun()
+
     # Main Area: File Upload
     
     def merge_and_display_result(base_name="video"):
@@ -135,87 +237,52 @@ def main():
         st.subheader("🏁 Final Categorized Results")
         
         # Load clip metadata if exists for rich info
-        tags_path = os.path.join(BASE_DIR, "processing", "semantic_tags.json")
+        tags_path = os.path.join(PROCESSING_DIR, "semantic_tags.json")
         tags_data = {}
         if os.path.exists(tags_path):
             try:
                 with open(tags_path, 'r') as f: tags_data = json.load(f)
             except: pass
 
-        tabs = st.tabs(["🚀 Product Highlights", "😂 Funny Moments", "🌍 General Content", "🏗️ Architecture Map", "📈 Learning Log"])
+        tabs = st.tabs(["🎞️ Master Cut (Complete)", "🔒 Product Highlights", "🔒 Funny Moments", "🔒 General Content", "🔒 Architecture Map", "🔒 Learning Log"])
         
-        for idx, category in enumerate(CATEGORIES):
-            with tabs[idx]:
-                category_dir = os.path.join(FINAL_OUTPUT_DIR, category)
-                if os.path.exists(category_dir):
-                    chunks = [f for f in os.listdir(category_dir) if f.endswith(".mp4")]
-                    chunks.sort()
-                    
-                    if chunks:
-                        st.info(f"Found {len(chunks)} clips in {category}.")
-                        # Individual Review
-                        for i, chunk in enumerate(chunks):
-                            tag_info = tags_data.get(chunk, "Unknown")
-                            with st.expander(f"▶️ {chunk} (Semantic: {tag_info})"):
-                                st.video(os.path.join(category_dir, chunk))
-
-                        # MASTER CATEGORY VIDEO
-                        master_name = f"final_output_{category}.mp4"
-                        master_path = os.path.join(BASE_DIR, "output_videos", master_name)
-                        if os.path.exists(master_path):
-                            st.write(f"---")
-                            st.success(f"📦 Merged {category} video ready!")
-                            st.video(master_path)
-                            with open(master_path, "rb") as f:
-                                st.download_button(f"⬇️ Download {category} Supercut", f, file_name=master_name, key=f"dl_{category}")
-                    else:
-                        st.write("No clips selected for this category.")
-                else:
-                    st.write(f"Category folder not created yet.")
-
-        with tabs[4]:
-            st.subheader("📈 Autonomous Learning Log")
-            st.markdown("The AI automatically extracts technical keywords from LLM results to speed up future runs. Below are the keywords recently vetted and added to the core logic.")
+        # MASTER VIDEO TAB (First & Default)
+        with tabs[0]:
+            st.subheader("🎞️ The Master Cut")
+            st.markdown("**This is your complete video.** It contains all the kept clips (Product + Funny + General) in temporal order.")
             
-            log_path = os.path.join(BASE_DIR, "processing", "auto_learning_log.json")
-            
-            if os.path.exists(log_path):
-                with open(log_path, 'r') as f: updates = json.load(f)
-                
-                if not updates:
-                    st.info("No autonomous updates in the latest run.")
-                else:
-                    for i, u in enumerate(updates):
-                        with st.container(border=True):
-                            st.write(f"✅ **Auto-Added**: `{u.get('keyword')}` ➡️ `{u.get('category').upper()}`")
-                            st.caption(f"Reason: High-Signal Match | Source: {u.get('source')}")
-            else:
-                st.info("Learning log will appear after the next optimized run.")
+            # Standardized Master Video Path
+            master_path = os.path.join(OUTPUT_VIDEOS_DIR, "final_output_master_raw.mp4")
 
-        with tabs[3]:
-            st.subheader("System Architecture")
-            arch_img = "/Users/munishm/.gemini/antigravity/brain/64fd5323-bdd6-4c6c-888b-5e6937731e2c/ai_video_pipeline_architecture_1769243921785.png"
-            if os.path.exists(arch_img):
-                st.image(arch_img, caption="7-Layer Cognitive Video Pipeline")
+            if os.path.exists(master_path):
+                st.success(f"📦 Master Video Ready ({os.path.getsize(master_path) / (1024*1024):.1f} MB)")
+                st.video(master_path)
+                with open(master_path, "rb") as f:
+                     st.download_button("⬇️ Download Master Video", f, file_name="final_output_master_raw.mp4", key="dl_master")
             else:
-                st.warning("Architecture diagram not found.")
+                st.info("Master video not generated yet.")
+
+        # LOCKED TABS
+        for i in range(1, 6):
+            with tabs[i]:
+                st.info("🔒 This feature is available in the Premium Studio edition.")
+                st.caption("Upgrade to unlock granular category breakdowns, architecture visualization, and autonomous learning logs.")
 
     # Main Area: File Upload
-    PROCESSING_DIR = os.path.join(BASE_DIR, "processing")
-    
     # Check for chunks in input_clips (not yet started) OR processing (in progress)
-    chunks_in_input = []
+    segments_in_input = []
     if os.path.exists(INPUT_CLIPS_DIR):
-        chunks_in_input = [f for f in os.listdir(INPUT_CLIPS_DIR) if f.startswith("chunk_") and f.endswith(".mp4")]
+        segments_in_input = [f for f in os.listdir(INPUT_CLIPS_DIR) if f.startswith("segment_") and f.endswith(".mp4")]
         
     chunks_in_processing = []
     if os.path.exists(PROCESSING_DIR):
-        chunks_in_processing = [f for f in os.listdir(PROCESSING_DIR) if f.startswith("chunk_") and os.path.isdir(os.path.join(PROCESSING_DIR, f))]
+        chunks_in_processing = [f for f in os.listdir(PROCESSING_DIR) if f.startswith("segment_") and os.path.isdir(os.path.join(PROCESSING_DIR, f))]
 
-    total_chunks_found = len(chunks_in_input) + len(chunks_in_processing)
+    total_units_found = len(segments_in_input) + len(chunks_in_processing)
 
-    if total_chunks_found > 0:
-        st.warning(f"⚠️ Found {total_chunks_found} chunks from a previous session ({len(chunks_in_processing)} in progress).")
+    if total_units_found > 0:
+        st.warning(f"⚠️ Found {total_units_found} units from a previous session.")
+
         col1, col2 = st.columns([1, 2])
         with col1:
              if st.button("▶️ Resume Processing", type="primary"):
@@ -223,7 +290,9 @@ def main():
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 with st.status("🚀 Resuming Pipeline...", expanded=True) as status:
-                    context = {"step_count": 0, "total_steps": total_chunks_found * 7}
+                    context = {"step_count": 0, "total_steps": total_units_found * 7}
+                    
+                    log_container = st.container(height=400)
                     
                     def ui_logger(message):
                         allowed_emojis = ["🚀", "✂️", "🏃", "🗣️", "👤", "🔒", "🕵️", "🎞️", "✨", "📥", "❌", "🛑", "⏩"]
@@ -233,7 +302,9 @@ def main():
                         is_noise = any(x in message for x in ["->", "Loading", "Scanning", "Using cache", "GL version"])
                         
                         if (is_headline or is_success or is_moved) and not is_noise:
-                            st.write(message)
+                            with log_container:
+                                st.write(message)
+                            
                             if "✅" in message and "finished" in message:
                                 context["step_count"] += 1
                                 if context["total_steps"] > 0:
@@ -242,8 +313,8 @@ def main():
                                 clean = message.strip().replace("=", "").strip()
                                 if clean: status.update(label=clean, state="running")
 
-                    # Run pipeline directly
-                    run_pipeline.main(logger_callback=ui_logger)
+                    # Run pipeline directly with USER_ID
+                    run_pipeline.main(logger_callback=ui_logger, user_id=user_id)
                     status.update(label="✨ Resume Completed!", state="complete", expanded=False)
                     progress_bar.progress(1.0)
                     st.success("🎉 Resume Complete! Check output below.")
@@ -253,25 +324,26 @@ def main():
         
         with col2:
             if st.button("🗑️ Clear & Start New"):
-                # Clear input chunks
-                for c in chunks_in_input:
+                # Clear input segments
+                for c in segments_in_input:
                     try: os.remove(os.path.join(INPUT_CLIPS_DIR, c))
+
                     except: pass
                 # Clear processing chunks - AND OUTPUTS
                 for c in chunks_in_processing:
                     try: shutil.rmtree(os.path.join(PROCESSING_DIR, c))
                     except: pass
                 
-                # Also clear output clips if we are clearing everything?
-                # Maybe safe to keep them, but "Clear & Start New" implies fresh start.
-                # Let's clean outputs carefully or leave them. User might want to keep history.
-                # Just keeping logic as is: clearing Inputs/Processing resets state.
+                # Also clear state for this user?
+                # state_manager.get_manager(user_id).clear_state()? 
+                # Currently state is file based in data/state_{user}.json. We should delete that too?
+                state_file = os.path.join(BASE_DIR, "data", f"state_{user_id}.json")
+                if os.path.exists(state_file):
+                    os.remove(state_file)
                 st.rerun()
 
     # --- PERSISTENT REVIEW DASHBOARD ---
-    # Redirecting to the modernized merge_and_display_result logic
     if os.path.exists(FINAL_OUTPUT_DIR):
-        # We just call the function which now handles everything in tabs
         merge_and_display_result("latest_run")
     # -----------------------------------
                 
@@ -286,7 +358,7 @@ def main():
                  if not chunk:
                      break
                  f.write(chunk)
-        st.success(f"✅ Uploaded: {uploaded_file.name}")
+        st.success(f"✅ Uploaded to workspace ({user_id}): {uploaded_file.name}")
         
         if st.button("🚀 Run AI Pipeline"):
             st.divider()
@@ -317,7 +389,6 @@ def main():
                         
                         if "✅" in message and "finished" in message:
                             context["step_count"] += 1
-                            # Estimate depends on how many chunks we have
                             if context["total_steps"] > 0:
                                 progress = min(context["step_count"] / context["total_steps"], 1.0)
                                 progress_bar.progress(progress)
@@ -331,7 +402,9 @@ def main():
                 st.write("🔪 Splitting into 5-minute chunks for stability...")
                 
                 # Temp dir for chunks
-                chunk_output_pattern = os.path.join(INPUT_CLIPS_DIR, "chunk_%03d.mp4")
+                chunk_output_pattern = os.path.join(INPUT_CLIPS_DIR, "segment_%04d.mp4")
+
+
                 
                 # FFmpeg Split Command
                 cmd = [
@@ -354,19 +427,20 @@ def main():
                 if os.path.exists(file_path):
                     os.remove(file_path)
 
-                # Count chunks
-                chunks = [f for f in os.listdir(INPUT_CLIPS_DIR) if f.startswith("chunk_") and f.endswith(".mp4")]
-                chunks.sort()
+                # Count segments
+                segments = [f for f in os.listdir(INPUT_CLIPS_DIR) if f.startswith("segment_") and f.endswith(".mp4")]
+                segments.sort()
                 
-                if not chunks:
-                    st.error("❌ No chunks created.")
+                if not segments:
+                    st.error("❌ No segments created.")
                     return
                 
-                st.write(f"📦 Found {len(chunks)} chunks to process.")
-                context["total_steps"] = len(chunks) * 7 
+                st.write(f"📦 Found {len(segments)} segments to process.")
+                context["total_steps"] = len(segments) * 7 
                 
                 # --- STEP 2: RUN PIPELINE ON CHUNKS ---
-                run_pipeline.main(logger_callback=ui_logger)
+                # Pass User ID here!
+                run_pipeline.main(logger_callback=ui_logger, user_id=user_id)
                 
                 # Finalize
                 status.update(label="✨ Pipeline Completed!", state="complete", expanded=False)
@@ -377,7 +451,6 @@ def main():
             # CALL MERGE HERE
             file_stem = os.path.splitext(uploaded_file.name)[0]
             merge_and_display_result(file_stem)
-
 
 if __name__ == "__main__":
     main()

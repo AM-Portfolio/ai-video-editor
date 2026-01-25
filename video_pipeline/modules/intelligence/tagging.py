@@ -8,6 +8,7 @@ sys.path.append(os.getcwd())
 
 import core.state as state_manager
 from core import config as cfg_loader
+from core import path_utils
 
 # Suppress FP16 warning if CPU
 warnings.filterwarnings("ignore")
@@ -23,8 +24,9 @@ except ImportError:
 class SemanticTagger:
     def __init__(self, config_path=None):
         self.config = cfg_loader.load_config(config_path)
-        self.scores_path = "processing/scores.json"
-        self.output_path = "processing/semantic_tags.json"
+        proc_dir = path_utils.get_processing_dir()
+        self.scores_path = os.path.join(proc_dir, "scores.json")
+        self.output_path = os.path.join(proc_dir, "semantic_tags.json")
         self.keywords_path = "data/keywords_active.json"
         self.keywords = self._load_keywords()
         
@@ -201,13 +203,16 @@ Answer ONLY with the category name (lowercase)."""
             tags = {}
         
         # We need to find the files
-        # scores keys are clip_ids (filenames)
-        # We look in 'processing/' recursively
+        # scores keys are clip_ids (filenames/paths like 'segment_0000/chunk_0000.mp4')
+        # We look in user's processing subfolder
+        proc_dir = path_utils.get_processing_dir()
         clip_paths = {}
-        for root, _, files in os.walk("processing"):
+        for root, _, files in os.walk(proc_dir):
             for f in files:
                 if f.endswith(".mp4"):
-                    clip_paths[f] = os.path.join(root, f)
+                    full_path = os.path.join(root, f)
+                    rel_path = os.path.relpath(full_path, proc_dir)
+                    clip_paths[rel_path] = full_path
 
         print(f"   Found {len(clip_paths)} processed clips available.")
         

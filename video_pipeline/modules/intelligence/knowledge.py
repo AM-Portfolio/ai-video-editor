@@ -7,13 +7,15 @@ import sys
 sys.path.append(os.getcwd())
 
 from core import config as cfg_loader
+from core import path_utils
 
 class RegexOptimizer:
     def __init__(self, config_path=None, keywords_path="data/keywords_active.json"):
         self.config = cfg_loader.load_config(config_path)
         self.keywords_path = keywords_path
-        self.log_path = "processing/auto_learning_log.json"
-        self.tags_path = "processing/semantic_tags.json"
+        proc_dir = path_utils.get_processing_dir()
+        self.log_path = os.path.join(proc_dir, "auto_learning_log.json")
+        self.tags_path = os.path.join(proc_dir, "semantic_tags.json")
 
     def is_safe_to_automate(self, keyword, category, transcript):
         """Use LLM to vet if a keyword is specific enough to be used without review."""

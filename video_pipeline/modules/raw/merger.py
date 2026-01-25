@@ -2,10 +2,17 @@ import os
 import subprocess
 import json
 import shutil
+import sys
+# Add project root to sys.path for modular imports
+sys.path.append(os.getcwd())
 
-BASE_DIR = "processing"
-OUTPUT_DIR = "output_videos"
-TEMP_DIR = "processing/temp_merge"
+from core import path_utils
+
+USER_ID = path_utils.get_user_id()
+
+BASE_DIR = path_utils.get_processing_dir()
+OUTPUT_DIR = path_utils.get_output_videos_dir()
+TEMP_DIR = os.path.join(BASE_DIR, "temp_merge")
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(TEMP_DIR, exist_ok=True)
@@ -90,7 +97,7 @@ CATEGORIES = ["product_related", "funny", "general", "selected"]
 files_found = False
 
 for category in CATEGORIES:
-    category_dir = os.path.join("output_clips", category)
+    category_dir = os.path.join(path_utils.get_output_clips_dir(), category)
     
     if os.path.exists(category_dir) and len(os.listdir(category_dir)) > 0:
         print(f"🎬 Merging {category.upper()} clips from {category_dir}...")
@@ -103,10 +110,12 @@ for category in CATEGORIES:
         
         if len(chunks) < 1:
             print(f"   ⚠️ No valid mp4 chunks found in {category}")
-        elif len(chunks) < 2:
-             print(f"   ⚠️ Not enough chunks to merge for {category} (found {len(chunks)})")
-        else:
+        elif len(chunks) == 1:
+            print(f"   ℹ️  Single chunk for {category}. Copying directly...")
+            output_path = os.path.join(OUTPUT_DIR, f"final_output_{category}.mp4")
+            shutil.copy2(chunks[0], output_path)
             files_found = True
+        else:
             files_found = True
             process_merge_logic(chunks, f"final_output_{category}")
 
@@ -119,7 +128,7 @@ seen_basenames = set()
 unique_chunks = []
 
 for category in CATEGORIES:
-    category_dir = os.path.join("output_clips", category)
+    category_dir = os.path.join(path_utils.get_output_clips_dir(), category)
     if os.path.exists(category_dir):
         for f in os.listdir(category_dir):
             if f.endswith(".mp4"):
@@ -133,50 +142,16 @@ sorted_all_chunks = sorted(unique_chunks, key=lambda x: os.path.basename(x))
 
 if len(sorted_all_chunks) > 1:
     process_merge_logic(sorted_all_chunks, "final_output_master_raw")
+elif len(sorted_all_chunks) == 1:
+    print("   ℹ️  Single chunk Master. Copying...")
+    master_path = os.path.join(OUTPUT_DIR, "final_output_master_raw.mp4")
+    shutil.copy2(sorted_all_chunks[0], master_path)
 else:
     print("   ⚠️ Not enough total clips for Master Video.")
 
 if not files_found:
     print("⚠️ No clips found in any output category folder.")
 
-else:
-    # Legacy / Per-Folder Mode (Iterates BASE_DIR)
-    print("🎬 Legacy Merge Mode (processing all folders)...")
-    if not os.path.exists(BASE_DIR):
-        print("No processing directory found.")
-        exit(0)
-
-    for clip in os.listdir(BASE_DIR):
-        clip_path = os.path.join(BASE_DIR, clip)
-        if not os.path.isdir(clip_path):
-            continue
-
-        # Prefer blurred files if privacy filter was enabled
-        blurred_dir = os.path.join(clip_path, "keep", "speech", "face_blurred")
-        face_dir = os.path.join(clip_path, "keep", "speech", "face")
-        # Fallback to source just in case? No, legacy filters moved them.
-        
-        # Use blurred dir if it exists and has files, otherwise use face dir
-        if os.path.isdir(blurred_dir) and len([f for f in os.listdir(blurred_dir) if f.endswith(".mp4")]) > 0:
-            source_dir = blurred_dir
-        elif os.path.isdir(face_dir):
-            source_dir = face_dir
-        else:
-            # Maybe it's just in keep?
-            # Or maybe we skip if not structured?
-            continue
-
-        chunks = sorted([
-            os.path.join(source_dir, f)
-            for f in os.listdir(source_dir)
-            if f.endswith(".mp4")
-        ])
-
-        if len(chunks) < 2:
-            print(f"   ⚠️ Not enough chunks to merge for {clip} (found {len(chunks)})")
-            continue
-            
-        process_merge_logic(chunks, f"final_{clip}")
 
 # Cleanup temp files
 shutil.rmtree(TEMP_DIR, ignore_errors=True)

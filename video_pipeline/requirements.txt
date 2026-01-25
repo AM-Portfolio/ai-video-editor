@@ -8,3 +8,6 @@ watchdog>=3.0.0
 soundfile>=0.12.0
 openai-whisper>=20231117
 together>=1.2.0
+pymongo>=4.6.0
+easyocr>=1.7.1
+

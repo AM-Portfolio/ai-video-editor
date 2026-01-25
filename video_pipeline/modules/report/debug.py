@@ -2,14 +2,17 @@ import sys
 import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 import os
+import json
 import subprocess
 # Add project root to sys.path for modular imports
 sys.path.append(os.getcwd())
 
 from core.logging import DecisionLog
 from core.scoring import ScoreKeeper
-BASE_DIR = "processing"
-OUTPUT_DIR = "output_clips"
+from core import path_utils
+
+BASE_DIR = path_utils.get_processing_dir()
+OUTPUT_DIR = path_utils.get_output_clips_dir()
 FINAL_NAME = "debug_preview.mp4"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -87,29 +90,42 @@ def build_filter_complex(chunks):
 
 print(f"🕵️  Rendering Debug Timeline (Video Only)...")
 
-for clip in os.listdir(BASE_DIR):
-    clip_dir = os.path.join(BASE_DIR, clip)
-    if not os.path.isdir(clip_dir):
+# Load scores and calculate unique IDs
+# Load scores and calculate unique IDs
+score_keeper = ScoreKeeper()
+try:
+    with open(score_keeper.scores_file, "r") as f:
+        all_scores = json.load(f)
+except Exception as e:
+    print(f"⚠️ Warning: Could not load scores for debug: {e}")
+    all_scores = {}
+
+# Group chunks by their parent clip/segment
+grouped_chunks = {}
+for clip_id in sorted(all_scores.keys()):
+    # clip_id is now "segment_xxxx/chunk_yyyy.mp4"
+    clip_path = os.path.join(BASE_DIR, clip_id)
+    if not os.path.exists(clip_path):
         continue
-        
-    # Recursive search for .mp4 files
-    all_chunks = []
-    for root, dirs, files in os.walk(clip_dir):
-        for file in files:
-            if file.endswith(".mp4"):
-                 all_chunks.append(os.path.join(root, file))
-    
-    # Sort by filename (chunk_0000, chunk_0001...)
+
+    # Extract the parent clip/segment name (e.g., "segment_xxxx")
+    parent_clip_name = clip_id.split(os.sep)[0]
+    if parent_clip_name not in grouped_chunks:
+        grouped_chunks[parent_clip_name] = []
+    grouped_chunks[parent_clip_name].append(clip_path)
+
+for clip_name, all_chunks in grouped_chunks.items():
+    # Sort chunks in temporal order
     all_chunks.sort(key=lambda x: os.path.basename(x))
     
     if not all_chunks:
         continue
 
-    print(f"   Analyzing {clip} ({len(all_chunks)} chunks found)...")
+    print(f"   Analyzing {clip_name} ({len(all_chunks)} chunks found)...")
     
     inputs, filter_complex = build_filter_complex(all_chunks)
     
-    output_path = os.path.join(OUTPUT_DIR, f"debug_{clip}.mp4")
+    output_path = os.path.join(OUTPUT_DIR, f"debug_{clip_name}.mp4")
     
     cmd = ["ffmpeg", "-y"] + inputs + [
         "-filter_complex", filter_complex,
