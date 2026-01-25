@@ -35,8 +35,10 @@ class ActionPlanner:
             destination = "output_clips/discarded"
             reason_suffix = ""
             
-            # Determine Action based on Policy High->Low
-            if score >= confident_keep_thresh:
+            # Determine Action based on Decider's explicit decision
+            decision_raw = d.get("decision", "discard").lower()
+            
+            if decision_raw == "keep":
                 action = "keep"
                 # Categorize Output
                 category = d.get("semantic_category", "general")
@@ -45,10 +47,14 @@ class ActionPlanner:
                     destination = f"output_clips/{category}"
                 else:
                     destination = "output_clips/selected"
-            elif score >= borderline_thresh:
+            elif decision_raw == "quarantine":
                 action = "quarantine"
                 destination = "output_clips/quarantine"
                 reason_suffix = " (Borderline)"
+            else:
+                # Discard
+                action = "discard"
+                destination = "output_clips/discarded"
             
             # Formulate human readable reason
             top_factors = d.get("top_factors", [])

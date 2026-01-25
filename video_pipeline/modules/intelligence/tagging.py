@@ -106,10 +106,13 @@ class SemanticTagger:
             return "product_related", "regex"
             
         funny_keywords = self.keywords.get("funny", [])
-        if any(w in text_lower for w in funny_keywords):
-            return "funny", "regex"
+        is_funny_regex = any(w in text_lower for w in funny_keywords)
         
-        # 2. Together AI Fallback (for subtle context)
+        # If Regex says funny, but we have context, let's verify with LLM to avoid context-breaking.
+        # e.g. "Hahaha" inside a DEEP technical convo should be product_related (or just kept with product flow).
+        # We only skip to LLM if context is present OR if we want to be smart about laughter.
+        
+        # 2. Together AI / LLM (The Judge)
         semantic_cfg = self.config.get("semantic_model", {})
         provider = semantic_cfg.get("provider", "local")
         api_key = semantic_cfg.get("api_key")
@@ -117,23 +120,30 @@ class SemanticTagger:
 
         # Build Context String
         context_str = ""
+        last_category = "general"
         if context_buffer:
             context_str = "PREVIOUS CONTEXT (History of conversation):\n"
             for item in context_buffer:
                 context_str += f"- [{item['category']}]: \"{item['text'][:50]}...\"\n"
+                last_category = item['category']
             context_str += "\n"
 
+        # OPTIMIZATION: If regex says funny, and last category was funny/general, accept it.
+        # But if last category was PRODUCT, we must check if this laughter belongs to it.
+        if is_funny_regex and last_category != "product_related":
+             return "funny", "regex"
+
         prompt = f"""Classify this text into ONE category.
-Priority Order (if multiple match):
-1. product_related (HIGHEST PRIORITY - code, work, tech, app, features)
+Priority Order:
+1. product_related (HIGHEST PRIORITY - code, work, tech, app, features, stock market, AI)
 2. funny (jokes, laughter, banter)
 3. general (casual conversation, life, random)
 
-Rules:
+CRITICAL RULES:
+- **CONTEXT IS KING**: If the user was just talking about 'product_related' stuff (see context), and now laughs or makes a short comment, IT IS STILL 'product_related'.
+- Laughter ("hahaha", "lol") during a tech demo is 'product_related'.
+- Only label 'funny' if the *topic* shifts entirely to a joke.
 - If it mentions code/work AND is funny -> Label as 'product_related'.
-- If it is funny AND general -> Label as 'funny'.
-- Only label 'general' if it fits nothing else.
-- USE CONTEXT: If previous chunks were 'product_related' and this is a continuation, it is likely 'product_related'.
 
 Categories:
 - product_related
