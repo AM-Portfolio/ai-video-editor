@@ -1,4 +1,6 @@
 import os
+import json
+from collections import Counter
 import sys
 # Add project root to sys.path for modular imports
 sys.path.append(os.getcwd())

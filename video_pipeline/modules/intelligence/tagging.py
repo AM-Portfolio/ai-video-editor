@@ -34,13 +34,6 @@ class SemanticTagger:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = None # Lazy load
 
-    def _load_config(self, path):
-        try:
-            with open(path) as f:
-                return json.load(f)
-        except Exception:
-            return {}
-
     def _load_keywords(self):
         try:
             with open(self.keywords_path) as f:
@@ -74,8 +67,21 @@ class SemanticTagger:
         if not self.model:
             return ""
         try:
+            # Load transcription settings
+            trans_cfg = self.config.get("transcription", {})
+            lang = trans_cfg.get("language", "auto")
+            prompt = trans_cfg.get("initial_prompt", "")
+            
             # Whisper transcribes audio/video files directly
-            result = self.model.transcribe(clip_path, fp16=(self.device=="cuda"))
+            # Passing language (if not 'auto') and initial_prompt for better context
+            transcribe_args = {
+                "fp16": (self.device == "cuda"),
+                "initial_prompt": prompt
+            }
+            if lang and lang != "auto":
+                transcribe_args["language"] = lang
+
+            result = self.model.transcribe(clip_path, **transcribe_args)
             text = result.get("text", "").strip()
             return text
         except Exception as e:

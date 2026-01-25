@@ -51,5 +51,9 @@
         "provider": "together",
         "model": "ServiceNow-AI/Apriel-1.6-15b-Thinker",
         "api_key": "bff39f38ee07df9a08ff8d2e7279b9d7223ab3f283a30bc39590d36f77dbd2fd"
+    },
+    "transcription": {
+        "language": "auto",
+        "initial_prompt": "This is a technical conversation in Hinglish about software development, AI models like Whisper and Together AI, and video editing workflows."
     }
 }

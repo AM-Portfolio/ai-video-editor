@@ -1,6 +1,6 @@
 {
     "chunks": {
-        "2026-01-23_18-12-56.mp4": {
+        "2026-01-25_12-51-30.mp4": {
             "status": "PENDING",
             "step": "Init",
             "message": "Waiting to start...",
@@ -9,5 +9,5 @@
             ]
         }
     },
-    "last_updated": 1769248337.7369568
+    "last_updated": 1769329890.482697
 }
