@@ -4,6 +4,11 @@ import json
 import threading
 from queue import Queue
 import time
+import shutil
+import sys
+# Add project root to sys.path for modular imports
+sys.path.append(os.getcwd())
+
 import run_pipeline
 import subprocess
 import shutil
@@ -37,6 +42,7 @@ DEFAULT_CONFIG = {
         "weights": {"face": 0.1, "motion": 0.2, "speech": 0.7}
     },
     "semantic_policy": {
+        "enabled": False,
         "weights": {"product_related": 1.0, "funny": 1.0, "general": 0.9}
     },
     "self_learning": True
@@ -75,10 +81,14 @@ def main():
             if submitted and user_input:
                 st.session_state["user_id"] = user_input.strip().replace(" ", "_")
                 st.rerun()
+                st.rerun()
         st.info("👋 This is a multi-user system. Your data is isolated by your Session ID.")
         return
 
     user_id = st.session_state["user_id"]
+    # CRITICAL: Set Env Var so path_utils knows who we are!
+    os.environ["PIPELINE_USER_ID"] = user_id
+    
     st.sidebar.markdown(f"👤 **User:** `{user_id}`")
     if st.sidebar.button("🚪 Logout"):
         del st.session_state["user_id"]
@@ -172,6 +182,12 @@ def main():
     # Semantic Policy Settings
     st.sidebar.divider()
     st.sidebar.subheader("🏷️ Semantic Weights")
+    
+    enable_llm = st.sidebar.checkbox(
+        "Enable LLM Labeling", config.get("semantic_policy", {}).get("enabled", False),
+        help="**Uncheck (Default)**: Creates a fast 'Master Cut' based on motion/faces only.\n**Check**: Uses AI to categorize clips (Product vs Funny), but takes longer."
+    )
+    
     s_product = st.sidebar.slider(
         "Product Related Influence", 0.0, 1.0, float(config.get("semantic_policy", {}).get("weights", {}).get("product_related", 1.0)),
         help="How much the AI prompts 'Product Features', 'Demo', or 'Unboxing'."
@@ -208,8 +224,8 @@ def main():
         config["decider"]["keep_threshold"] = keep_threshold
         config["decider"]["weights"] = {"face": w_face, "motion": w_motion, "speech": w_speech}
         
-        # New Semantic Weights
         if "semantic_policy" not in config: config["semantic_policy"] = {}
+        config["semantic_policy"]["enabled"] = enable_llm
         config["semantic_policy"]["weights"] = {"product_related": s_product, "funny": s_funny, "general": s_general}
         
         config["self_learning"] = self_learning
