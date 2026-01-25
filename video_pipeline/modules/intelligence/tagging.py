@@ -179,6 +179,12 @@ Answer ONLY with the category name (lowercase)."""
     def run(self):
         print("🏷️  Running Semantic Tagger (Context-Aware)...")
         
+        # Check if enabled in config
+        semantic_cfg = self.config.get("semantic_policy", {})
+        if not semantic_cfg.get("enabled", False):
+            print("   ⏩ Semantic Tagging Disabled (Master Cut Mode). Skipping.")
+            return
+        
         if not os.path.exists(self.scores_path):
             print(f"⚠️ Scores file not found: {self.scores_path}")
             return
