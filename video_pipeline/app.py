@@ -303,7 +303,6 @@ def main():
                 with col_thumb:
                     thumb_path = os.path.join(OUTPUT_VIDEOS_DIR, "thumbnail.png")
                     if os.path.exists(thumb_path):
-                    if os.path.exists(thumb_path):
                         st.image(thumb_path, caption="🎨 Generated YouTube Thumbnail", width="stretch") # Updated API
                         with open(thumb_path, "rb") as f:
                              st.download_button("⬇️ Download Thumbnail", f, file_name="thumbnail.png", mime="image/png", key=f"dl_thumb_{base_name}")
@@ -332,30 +331,40 @@ def main():
 
     total_units_found = len(segments_in_input) + len(chunks_in_processing)
 
-    if total_units_found > 0:
-        st.warning(f"⚠️ Found {total_units_found} units from a previous session.")
+    total_units_found = len(segments_in_input) + len(chunks_in_processing)
+
+    # LOGIC: 
+    # 1. Dirty State (Chunks in Processing) -> Resume/Clear Warning
+    # 2. Clean State (File in Input, No Processing) -> Ready to Run
+    # 3. Empty State -> Upload
+    
+    dirty_state = len(chunks_in_processing) > 0
+    ready_state = (len(segments_in_input) > 0) and not dirty_state
+
+    if dirty_state:
+        st.warning(f"⚠️ Found {len(chunks_in_processing)} active chunks from an interrupted session.")
 
         col1, col2 = st.columns([1, 2])
         with col1:
              if st.button("▶️ Resume Processing", type="primary"):
                 st.session_state["pipeline_active"] = True
-                st.session_state["pipeline_step"] = 0 # Resume usually implies ingest is done
+                st.session_state["pipeline_step"] = 0 
                 st.session_state["pipeline_logs"] = ["🚀 Resuming Pipeline..."]
                 st.session_state["pipeline_stem"] = "resumed_video"
                 st.rerun()
         
         with col2:
             if st.button("🗑️ Clear & Start New"):
-                for c in segments_in_input:
-                    try: os.remove(os.path.join(INPUT_CLIPS_DIR, c))
-                    except: pass
-                for c in chunks_in_processing:
-                    try: shutil.rmtree(os.path.join(PROCESSING_DIR, c))
-                    except: pass
-                
-                state_file = os.path.join(BASE_DIR, "data", f"state_{user_id}.json")
-                if os.path.exists(state_file):
-                    os.remove(state_file)
+                try:
+                    import subprocess
+                    import sys
+                    st.info("🧹 Running Reset Script...")
+                    reset_script = os.path.join(BASE_DIR, "reset_pipeline.py")
+                    subprocess.run([sys.executable, reset_script, "-y"], check=True)
+                    st.success("✅ Workspace Reset Complete.")
+                    time.sleep(1) 
+                except Exception as e:
+                    st.error(f"❌ Reset failed: {e}")
                 st.rerun()
     
     # --- PERSISTENT REVIEW DASHBOARD ---
@@ -364,6 +373,33 @@ def main():
     # -----------------------------------
     
     uploaded_file = None
+    
+    # If READY (File uploaded but not processed), show Run Button directly
+    if ready_state:
+        filename = segments_in_input[0]
+        st.success(f"✅ Ready to Process: {filename}")
+        
+        col_run, col_clear = st.columns([2, 1])
+        with col_run:
+            if st.button("🚀 Run AI Pipeline", type="primary"):
+                 # FORCE RESET STATE on new run
+                 state_file = os.path.join(BASE_DIR, "data", f"state_{user_id}.json")
+                 if os.path.exists(state_file):
+                     try: os.remove(state_file)
+                     except: pass
+
+                 st.session_state["pipeline_active"] = True
+                 st.session_state["pipeline_step"] = -1
+                 st.session_state["pipeline_logs"] = ["🚀 Starting New Run..."]
+                 st.session_state["pipeline_stem"] = os.path.splitext(filename)[0]
+                 st.rerun()
+        with col_clear:
+             if st.button("🗑️ Remove File"):
+                 try: os.remove(os.path.join(INPUT_CLIPS_DIR, filename))
+                 except: pass
+                 st.rerun()
+
+    # If Empty, Show Uploader
     if total_units_found == 0:
         uploaded_file = st.file_uploader("Upload a Video (.mp4)", type=["mp4"])
     

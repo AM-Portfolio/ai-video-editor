@@ -106,10 +106,12 @@ class SmartEditor:
                         img_path = data["image_path"]
                         if os.path.exists(img_path):
                             # Overlay relative to BATCH start
-                            # Duration: 3s
+                            # Duration: Increased to 5.0s per User Feedback "Better Pacing"
+                            duration = min(5.0, clip_dur) 
+                            
                             b_clip = (ImageClip(img_path)
                                      .set_start(current_batch_time)
-                                     .set_duration(min(3.0, clip_dur)) # Don't exceed clip
+                                     .set_duration(duration)
                                      .set_position("center")
                                      .resize(height=batch_main.h)
                                      .crossfadein(0.5)

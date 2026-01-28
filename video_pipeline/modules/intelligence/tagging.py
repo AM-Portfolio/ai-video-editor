@@ -119,8 +119,12 @@ class SemanticTagger:
         Uses Regex/Keywords FIRST, then falls back to Together AI with Context.
         Now also extracts VISUAL POTENTIAL for B-Roll.
         """
-        if not text or len(text) < 10:
-            return "general", "too_short", 0, ""
+        if not text:
+             return "general", "too_short", 0, "", False, "empty_text"
+        
+        if len(text) < 2:
+             # It was < 10, now < 2. Log what it was.
+             return "general", "too_short", 0, "", False, f"too_short_{text}"
 
         # 1. Fast Regex/Keyword Check
         text_lower = text.lower()
@@ -130,7 +134,8 @@ class SemanticTagger:
             # If regex matches, we assume score 0 for safety unless we want to force LLM?
             # For B-Roll, we need visuals. Regex doesn't give visuals.
             # Strategy: If Regex hits, we default to "product_related" but NO visual description.
-            return "product_related", "regex", 0, ""
+            # Strategy: If Regex hits, we default to "product_related" but NO visual description.
+            return "product_related", "regex", 0, "", False, "regex_product"
             
         funny_keywords = self.keywords.get("funny", [])
         is_funny_regex = any(w in text_lower for w in funny_keywords)
@@ -141,36 +146,43 @@ class SemanticTagger:
         api_key = semantic_cfg.get("api_key")
         model = semantic_cfg.get("model", "ServiceNow-AI/Apriel-1.6-15b-Thinker")
 
-        # Build Context String
+        # Build Context String (Last 6 chunks ~ 30s)
         context_str = ""
         last_category = "general"
         if context_buffer:
-            context_str = "PREVIOUS CONTEXT (History of conversation):\n"
+            context_str = "PREVIOUS CONTEXT (Use this to resolve fragmented sentences):\n"
             for item in context_buffer:
                 context_str += f"- [{item['category']}]: \"{item['text'][:50]}...\"\n"
                 last_category = item['category']
             context_str += "\n"
 
         if is_funny_regex and last_category != "product_related":
-             return "funny", "regex", 0, ""
+             return "funny", "regex", 0, "", False, "regex_funny"
 
         prompt = f"""Analyze this text for Category AND Visual Potential.
         
-        1. Classify Category (product_related, funny, general).
-        2. Assign 'visual_score' (0-10): How easily can this be illustrated with an image?
-           - 0-3: Abstract thoughts, feelings, "I think", "It was good".
-           - 4-7: Semi-concrete.
-           - 8-10: Concrete objects, scenes, "Red car", "Blue ocean", "Coding heavily".
-        3. Write 'visual_description': A short prompt for an AI image generator describing the scene.
-           - If score < 5, leave empty string.
+        CONTEXT: The text below is a 5-second fragment of a longer video. 
+        Use the PREVIOUS CONTEXT to understand the topic if the fragment is incomplete.
         
-        {context_str}CURRENT TEXT: "{text}"
+        1. Classify Category (product_related, funny, general).
+        2. Assign 'visual_score' (0-10): How easily can this be illustrated?
+        3. Write 'visual_description': A prompt for an AI image generator.
+           - IMPORTANT: Describe the MEANING, not just the words.
+           - If text is "Falling from the top" (context: Market), describe "Stock market crash chart", NOT "Red ball falling".
+           - Use 16:9 cinematic style description.
+        4. DECIDE: 'b_roll_needed' (true/false).
+           - True: Text describes concrete scenes, strong metaphors, or specific topics (Markets, Coding, Travel).
+           - False: Filler words ("Uhh", "So basically"), pure abstraction, or fragmented sentences without clear meaning.
+        
+        {context_str}CURRENT FRAGMENT: "{text}"
         
         OUTPUT FORMAT (valid JSON only):
         {{
           "category": "category_name",
           "visual_score": 5, 
-          "visual_description": "A description of the scene..."
+          "visual_description": "A description of the scene...",
+          "b_roll_needed": true,
+          "b_roll_reason": "Visualization adds value to 'red car'"
         }}
         """
 
@@ -193,20 +205,27 @@ class SemanticTagger:
                     json_str = content[start:end]
                     data = json.loads(json_str)
                     
-                    return data.get("category", "general"), "llm_context", data.get("visual_score", 0), data.get("visual_description", "")
+                    return (
+                        data.get("category", "general"), 
+                        "llm_context", 
+                        data.get("visual_score", 0), 
+                        data.get("visual_description", ""),
+                        data.get("b_roll_needed", False),
+                        data.get("b_roll_reason", "")
+                    )
                 except:
-                     # Fallback if JSON fails but category text exists
+                     # Fallback if JSON fails
                      lower_content = content.lower()
                      cat = "general"
                      for c in ["product_related", "funny", "general"]:
                          if c in lower_content: cat = c
-                     return cat, "llm_fallback", 0, ""
+                     return cat, "llm_fallback", 0, "", False, "json_error"
 
             except Exception as e:
                  print(f"⚠️ Together AI call failed: {e}")
 
         # 3. Final Fallback
-        return "general", "fallback", 0, ""
+        return "general", "fallback", 0, "", False, "fallback"
 
     def run(self):
         print("🏷️  Running Semantic Tagger (Context-Aware)...")
@@ -305,16 +324,22 @@ class SemanticTagger:
             visual_desc = ""
             
             if llm_enabled:
-                # Expecting 4 values now: cat, attr, v_score, v_desc
+                # Expecting 6 values: cat, attr, v_score, v_desc, br_need, br_reason
                 result = self.classify_text(text, context_buffer)
-                if len(result) == 4:
-                    category, attribution, visual_score, visual_desc = result
+                if len(result) == 6:
+                    category, attribution, visual_score, visual_desc, br_needed, br_reason = result
+                elif len(result) == 4:
+                     category, attribution, visual_score, visual_desc = result
+                     br_needed, br_reason = False, "legacy_4"
                 else:
-                     category, attribution = result
+                     category, attribution = result[:2]
+                     br_needed, br_reason = False, "legacy_2"
             else:
                 # Fast path
                 category = "general"
                 attribution = "fast_mode"
+                br_needed = False
+                br_reason = "fast_mode_disabled"
                 
                 # Basic Keyword Check
                 text_lower = text.lower()
@@ -330,7 +355,7 @@ class SemanticTagger:
             
             # Update Buffer
             context_buffer.append({"text": text, "category": category})
-            if len(context_buffer) > 3:
+            if len(context_buffer) > 6:
                 context_buffer.pop(0)
             
             tags[clip_id] = {
@@ -338,7 +363,9 @@ class SemanticTagger:
                 "transcript": text,
                 "attribution": attribution,
                 "visual_score": visual_score,
-                "visual_description": visual_desc
+                "visual_description": visual_desc,
+                "b_roll_needed": br_needed,
+                "b_roll_reason": br_reason
             }
             # Visual Progress for the user
             attr_label = f"[{attribution.upper()}]"
