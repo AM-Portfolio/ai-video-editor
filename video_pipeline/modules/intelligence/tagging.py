@@ -29,12 +29,13 @@ class SemanticTagger:
         self.output_path = os.path.join(proc_dir, "semantic_tags.json")
         self.keywords_path = "data/keywords_active.json"
         self.keywords = self._load_keywords()
+        self.api_key = self.config.get("semantic_model", {}).get("api_key") or os.getenv("TOGETHER_API_KEY")
         
         # Configuration for "Pre-Filtering"
         # We only transcribe clips that are "kinda good" to save time.
         self.min_quality_threshold = 0.4 # Lower than final keep threshold to be safe
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model = None # Lazy load
+        self.model = None # Lazy load for Local fallback
 
     def _load_keywords(self):
         try:
@@ -44,12 +45,13 @@ class SemanticTagger:
             return {"product_related": [], "funny": []}
 
     def load_model(self):
+        # Only load local model if strictly necessary (Lazy Loading is good)
         if self.model is None:
-            print(f"🧠 Loading Whisper model (small) on {self.device}...")
+            print(f"🧠 Loading Local Whisper model (small) on {self.device} as fallback...")
             try:
                 self.model = whisper.load_model("small", device=self.device)
             except Exception as e:
-                print(f"❌ Failed to load Whisper: {e}")
+                print(f"❌ Failed to load Local Whisper: {e}")
                 return False
         return True
 
@@ -66,8 +68,30 @@ class SemanticTagger:
         return score
 
     def transcribe(self, clip_path):
-        if not self.model:
+        # 1. Try Together AI (Cloud Whisper Large v3) - High Quality & Fast
+        if self.api_key:
+            try:
+                from together import Together
+                client = Together(api_key=self.api_key)
+                
+                with open(clip_path, "rb") as audio_file:
+                    response = client.audio.transcriptions.create(
+                        model="openai/whisper-large-v3",
+                        file=audio_file,
+                        response_format="json"
+                    )
+                
+                text = response.text.strip()
+                return text
+            except Exception as e:
+                # Log cloud failure clearly so user knows fallback happened
+                print(f"   ⚠️ Cloud Transcription failed ({e}), switching to local fallback...")
+                pass
+        
+        # 2. Fallback to Local Whisper (Small) - Free/Offline
+        if not self.load_model(): # Ensure model is loaded
             return ""
+            
         try:
             # Load transcription settings
             trans_cfg = self.config.get("transcription", {})
@@ -93,28 +117,25 @@ class SemanticTagger:
     def classify_text(self, text, context_buffer=None):
         """
         Uses Regex/Keywords FIRST, then falls back to Together AI with Context.
-        Categories: product_related, funny, general
-        
-        context_buffer: List of dicts [{"text": "...", "category": "..."}, ...] from previous chunks.
+        Now also extracts VISUAL POTENTIAL for B-Roll.
         """
         if not text or len(text) < 10:
-            return "general", "too_short"
+            return "general", "too_short", 0, ""
 
         # 1. Fast Regex/Keyword Check
         text_lower = text.lower()
         
         product_keywords = self.keywords.get("product_related", [])
         if any(w in text_lower for w in product_keywords):
-            return "product_related", "regex"
+            # If regex matches, we assume score 0 for safety unless we want to force LLM?
+            # For B-Roll, we need visuals. Regex doesn't give visuals.
+            # Strategy: If Regex hits, we default to "product_related" but NO visual description.
+            return "product_related", "regex", 0, ""
             
         funny_keywords = self.keywords.get("funny", [])
         is_funny_regex = any(w in text_lower for w in funny_keywords)
         
-        # If Regex says funny, but we have context, let's verify with LLM to avoid context-breaking.
-        # e.g. "Hahaha" inside a DEEP technical convo should be product_related (or just kept with product flow).
-        # We only skip to LLM if context is present OR if we want to be smart about laughter.
-        
-        # 2. Together AI / LLM (The Judge)
+        # 2. Together AI / LLM (The Judge & Visual Director)
         semantic_cfg = self.config.get("semantic_model", {})
         provider = semantic_cfg.get("provider", "local")
         api_key = semantic_cfg.get("api_key")
@@ -130,31 +151,28 @@ class SemanticTagger:
                 last_category = item['category']
             context_str += "\n"
 
-        # OPTIMIZATION: If regex says funny, and last category was funny/general, accept it.
-        # But if last category was PRODUCT, we must check if this laughter belongs to it.
         if is_funny_regex and last_category != "product_related":
-             return "funny", "regex"
+             return "funny", "regex", 0, ""
 
-        prompt = f"""Classify this text into ONE category.
-Priority Order:
-1. product_related (HIGHEST PRIORITY - code, work, tech, app, features, stock market, AI)
-2. funny (jokes, laughter, banter)
-3. general (casual conversation, life, random)
-
-CRITICAL RULES:
-- **CONTEXT IS KING**: If the user was just talking about 'product_related' stuff (see context), and now laughs or makes a short comment, IT IS STILL 'product_related'.
-- Laughter ("hahaha", "lol") during a tech demo is 'product_related'.
-- Only label 'funny' if the *topic* shifts entirely to a joke.
-- If it mentions code/work AND is funny -> Label as 'product_related'.
-
-Categories:
-- product_related
-- funny
-- general
-
-{context_str}CURRENT TEXT: "{text}"
-
-Answer ONLY with the category name (lowercase)."""
+        prompt = f"""Analyze this text for Category AND Visual Potential.
+        
+        1. Classify Category (product_related, funny, general).
+        2. Assign 'visual_score' (0-10): How easily can this be illustrated with an image?
+           - 0-3: Abstract thoughts, feelings, "I think", "It was good".
+           - 4-7: Semi-concrete.
+           - 8-10: Concrete objects, scenes, "Red car", "Blue ocean", "Coding heavily".
+        3. Write 'visual_description': A short prompt for an AI image generator describing the scene.
+           - If score < 5, leave empty string.
+        
+        {context_str}CURRENT TEXT: "{text}"
+        
+        OUTPUT FORMAT (valid JSON only):
+        {{
+          "category": "category_name",
+          "visual_score": 5, 
+          "visual_description": "A description of the scene..."
+        }}
+        """
 
         if provider == "together" and api_key:
             try:
@@ -166,34 +184,51 @@ Answer ONLY with the category name (lowercase)."""
                     messages=[{"role": "user", "content": prompt}]
                 )
                 
-                content = response.choices[0].message.content.strip().lower()
-                for cat in ["product_related", "funny", "general"]:
-                    if cat in content:
-                        return cat, "llm_context"
+                content = response.choices[0].message.content.strip()
+                # Parse JSON
+                try: 
+                    # Find JSON substring if model chats
+                    start = content.find('{')
+                    end = content.rfind('}') + 1
+                    json_str = content[start:end]
+                    data = json.loads(json_str)
+                    
+                    return data.get("category", "general"), "llm_context", data.get("visual_score", 0), data.get("visual_description", "")
+                except:
+                     # Fallback if JSON fails but category text exists
+                     lower_content = content.lower()
+                     cat = "general"
+                     for c in ["product_related", "funny", "general"]:
+                         if c in lower_content: cat = c
+                     return cat, "llm_fallback", 0, ""
+
             except Exception as e:
                  print(f"⚠️ Together AI call failed: {e}")
 
         # 3. Final Fallback
-        return "general", "fallback"
+        return "general", "fallback", 0, ""
 
     def run(self):
         print("🏷️  Running Semantic Tagger (Context-Aware)...")
         
         # Check if enabled in config
         semantic_cfg = self.config.get("semantic_policy", {})
-        if not semantic_cfg.get("enabled", False):
-            print("   ⏩ Semantic Tagging Disabled (Master Cut Mode). Skipping.")
-            return
+        llm_enabled = semantic_cfg.get("enabled", False)
         
+        if not llm_enabled:
+             print("   ⏩ LLM Tagging Disabled. Running Transcription Only (for Thumbnail).")
+
         if not os.path.exists(self.scores_path):
             print(f"⚠️ Scores file not found: {self.scores_path}")
             return
             
         with open(self.scores_path) as f:
             scores = json.load(f)
-            
-        if not self.load_model():
-            return
+        
+        # OPTIMIZATION: Do NOT load local model here. 
+        # Let transcribe() load it lazily only if Cloud fails.
+        # if not self.load_model(): return
+
 
         skipped_count = 0
         resumed_count = 0
@@ -223,7 +258,6 @@ Answer ONLY with the category name (lowercase)."""
         print(f"   Found {len(clip_paths)} processed clips available.")
         
         # KEY CHANGE: Sort keys to ensure temporal order for context
-        # Assumes filenames are like 'chunk_0001.mp4' which sort lexicographically correctly
         sorted_clip_ids = sorted(scores.keys())
         
         context_buffer = [] # Sliding window of last 3 items
@@ -245,27 +279,54 @@ Answer ONLY with the category name (lowercase)."""
             if not path:
                 continue
 
-            # RESUME CHECK
-            # Even if resumed, we might need to READ the transcript to build context for NEXT chunk?
-            # For simplicity, if resumed, we try to grab existing text for context.
-            if state_manager.is_step_done(clip_id, step_name) and clip_id in tags:
-                resumed_count += 1
-                # Add to context buffer from EXISTING tag
-                # Only if it has a real category
-                existing_cat = tags[clip_id].get("category", "general")
-                existing_text = tags[clip_id].get("transcript", "")
-                if existing_cat != "low_quality":
-                     context_buffer.append({"text": existing_text, "category": existing_cat})
-                     if len(context_buffer) > 3:
-                         context_buffer.pop(0)
-                continue
+            # RESUME CHECK: Trust File Cache > State Manager
+            # If we have a tag in the JSON file, assume it's done, even if state_manager forgot.
+            if clip_id in tags:
+                # Check if it has valid data (not just a placeholder)
+                if tags[clip_id].get("category"):
+                    resumed_count += 1
+                    # Auto-repair state
+                    state_manager.update_chunk_status(clip_id, "COMPLETED", step=step_name)
+                    # print(f"   ⏩ Resuming {clip_id} from cache.") 
+                    existing_cat = tags[clip_id].get("category", "general")
+                    existing_text = tags[clip_id].get("transcript", "")
+                    if existing_cat != "low_quality":
+                         context_buffer.append({"text": existing_text, "category": existing_cat})
+                         if len(context_buffer) > 3:
+                             context_buffer.pop(0)
+                    continue
                 
             # 3. Transcribe
             print(f"   🎙️  Transcribing {clip_id} (Score: {q_score:.2f})...", end="\r")
             text = self.transcribe(path)
             
-            # 4. Classify with Context
-            category, attribution = self.classify_text(text, context_buffer)
+            # 4. Classify (Conditional)
+            visual_score = 0
+            visual_desc = ""
+            
+            if llm_enabled:
+                # Expecting 4 values now: cat, attr, v_score, v_desc
+                result = self.classify_text(text, context_buffer)
+                if len(result) == 4:
+                    category, attribution, visual_score, visual_desc = result
+                else:
+                     category, attribution = result
+            else:
+                # Fast path
+                category = "general"
+                attribution = "fast_mode"
+                
+                # Basic Keyword Check
+                text_lower = text.lower()
+                product_keywords = self.keywords.get("product_related", [])
+                funny_keywords = self.keywords.get("funny", [])
+                
+                if any(w in text_lower for w in product_keywords):
+                    category = "product_related"
+                    attribution = "regex_fast"
+                elif any(w in text_lower for w in funny_keywords):
+                    category = "funny"
+                    attribution = "regex_fast"
             
             # Update Buffer
             context_buffer.append({"text": text, "category": category})
@@ -275,13 +336,21 @@ Answer ONLY with the category name (lowercase)."""
             tags[clip_id] = {
                 "category": category,
                 "transcript": text,
-                "attribution": attribution
+                "attribution": attribution,
+                "visual_score": visual_score,
+                "visual_description": visual_desc
             }
             # Visual Progress for the user
             attr_label = f"[{attribution.upper()}]"
-            print(f"   🏷️  {clip_id}: {category:15} {attr_label:10} \"{text[:30]}...\"")
+            v_label = f"(V:{visual_score})" if visual_score >= 7 else ""
+            print(f"   🏷️  {clip_id}: {category:15} {attr_label:10} {v_label:6} \"{text[:30]}...\"")
             processed_count += 1
             state_manager.mark_step_done(clip_id, step_name)
+            
+            # INCREMENTAL SAVE (Every 5 clips) to allow resume on crash
+            if processed_count % 5 == 0:
+                with open(self.output_path, "w") as f:
+                    json.dump(tags, f, indent=2)
             
         # Clear line
         print(f"                                                                 ", end="\r")

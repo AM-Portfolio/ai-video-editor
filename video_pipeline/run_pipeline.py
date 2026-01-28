@@ -17,6 +17,7 @@ STEPS = [
     ("👤 Face Detection Scoring", "modules/perception/faces.py"),
     ("🔒 Privacy Blur", "modules/safety/privacy.py"),
     ("🏷️  Semantic Tagging", "modules/intelligence/tagging.py"),
+    ("🎞️  B-Roll Generation", "modules/creation/b_roll.py"),
     ("🧠 The Decider", "modules/intelligence/decider.py"),
     ("📊 Decision Analytics", "modules/report/analytics.py"),
     ("🗺️  Action Planner", "modules/report/planner.py"),
@@ -24,7 +25,8 @@ STEPS = [
     ("📝 Run Explainer", "modules/report/explainer.py"),
     ("🕵️  Debug Visualization", "modules/report/debug.py"),
     ("🛠️  Knowledge Update", "modules/intelligence/knowledge.py"),
-    ("🎞️  Final Merge", "modules/raw/merger.py"),
+    ("🎬 Smart Editor (B-Roll & Merge)", "modules/creation/editor.py"),
+    ("🎨 Thumbnail Generation", "modules/creation/thumbnail.py"),
 ]
 
 INPUT_CLIPS_DIR = "input_clips"
@@ -45,24 +47,27 @@ def ingest_files(logger_callback=None):
         print(f"   📥 Ingesting Files")
         print(f"{'='*50}\n")
     
-    if not os.path.exists(INPUT_CLIPS_DIR):
-        msg = f"⚠️  {INPUT_CLIPS_DIR} does not exist."
+    input_dir = path_utils.get_input_clips_dir()
+    proc_dir = path_utils.get_processing_dir()
+    
+    if not os.path.exists(input_dir):
+        msg = f"⚠️  {input_dir} does not exist."
         print(msg)
         if logger_callback: logger_callback(msg)
         return False
         
-    os.makedirs(PROCESSING_DIR, exist_ok=True)
+    os.makedirs(proc_dir, exist_ok=True)
     
     moved_count = 0
     active_chunks = []
 
-    for filename in os.listdir(INPUT_CLIPS_DIR):
+    for filename in os.listdir(input_dir):
         if not filename.lower().endswith(".mp4"):
             continue
             
-        src = os.path.join(INPUT_CLIPS_DIR, filename)
+        src = os.path.join(input_dir, filename)
         clean_name = sanitize_filename(filename)
-        dst = os.path.join(PROCESSING_DIR, clean_name)
+        dst = os.path.join(proc_dir, clean_name)
         
         # RESUME CAPABILITY: Check if final output exists
         OUTPUT_CLIPS_DIR = path_utils.get_output_clips_dir()
@@ -80,7 +85,7 @@ def ingest_files(logger_callback=None):
         # Logic to clear previous run data for this specific file
         video_stem = os.path.splitext(clean_name)[0]
         video_filename = filename
-        previous_run_dir = os.path.join(PROCESSING_DIR, video_stem)
+        previous_run_dir = os.path.join(proc_dir, video_stem)
         
         # RESUME: If splitting is already done according to state, DON'T clear.
         if state_manager.is_step_done(video_filename, "✂️  Splitting Video"):
@@ -96,7 +101,7 @@ def ingest_files(logger_callback=None):
         if os.path.exists(dst):
             os.remove(dst)
 
-        msg = f"   -> Copying {filename} to {PROCESSING_DIR}/{clean_name}"
+        msg = f"   -> Copying {filename} to {proc_dir}/{clean_name}"
         print(msg)
         if logger_callback: logger_callback(msg)
         shutil.copy2(src, dst)
@@ -105,7 +110,7 @@ def ingest_files(logger_callback=None):
         
     # Check if we are resuming processing chunks (files already in processing/)
     # If ingest moved nothing, maybe we are just continuing?
-    chunks_in_processing = [f for f in os.listdir(PROCESSING_DIR) if f.endswith(".mp4")]
+    chunks_in_processing = [f for f in os.listdir(proc_dir) if f.endswith(".mp4")]
     
     # Initialize State
     all_chunks = set(active_chunks + chunks_in_processing)

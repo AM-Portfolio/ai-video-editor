@@ -13,6 +13,12 @@ from core import path_utils
 config = cfg_loader.load_config()
 BASE_DIR = path_utils.get_processing_dir()
 
+# FIX: Set Torch Hub dir to project folder to avoid System Resource Deadlock in global cache
+# Also avoids redownloading if cache is preserved in volume
+hub_dir = os.path.join(os.getcwd(), "data", "torch_hub")
+os.makedirs(hub_dir, exist_ok=True)
+torch.hub.set_dir(hub_dir)
+
 print("🧠 Loading Silero VAD Model...")
 model, utils = torch.hub.load(
     repo_or_dir='snakers4/silero-vad',

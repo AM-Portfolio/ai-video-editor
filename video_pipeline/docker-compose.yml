@@ -4,9 +4,13 @@ services:
     container_name: ai_video_editor
     ports:
       - "8501:8501"
+    env_file:
+      - .env
     volumes:
       # Persist Inputs, Outputs, and State
       - ./input_clips:/app/input_clips
+      - ./processing:/app/processing
+      - ./output_clips:/app/output_clips
       - ./output_clips:/app/output_clips
       - ./output_videos:/app/output_videos
       - ./data:/app/data
@@ -16,19 +20,21 @@ services:
     environment:
       - XDG_CACHE_HOME=/root/.cache
       - STREAMLIT_SERVER_MAX_UPLOAD_SIZE=2000
-      - MONGO_URI=mongodb://mongo:27017/
-    depends_on:
-      - mongo
+      # - MONGO_URI=mongodb://admin:password123@host.docker.internal:27017/thanks?authSource=admin
+    # depends_on:
+    #   - mongo
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # Explicit mapping for Linux/some configs, safe for Mac
 
-  mongo:
-    image: mongo:latest
-    container_name: ai_video_mongo
-    ports:
-      - "27018:27017"
-    volumes:
-      - mongo_data:/data/db
-    restart: unless-stopped
+#   mongo:
+#     image: mongo:latest
+#     container_name: ai_video_mongo
+#     ports:
+#       - "27018:27017"
+#     volumes:
+#       - mongo_data:/data/db
+#     restart: unless-stopped
 
-volumes:
-  mongo_data:
+# volumes:
+#   mongo_data:

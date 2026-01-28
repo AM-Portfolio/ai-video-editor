@@ -45,7 +45,8 @@ DEFAULT_CONFIG = {
         "enabled": False,
         "weights": {"product_related": 1.0, "funny": 1.0, "general": 0.9}
     },
-    "self_learning": True
+    "self_learning": True,
+    "b_roll": {"enabled": False}
 }
 
 def load_config():
@@ -80,7 +81,6 @@ def main():
             submitted = st.form_submit_button("Start Session")
             if submitted and user_input:
                 st.session_state["user_id"] = user_input.strip().replace(" ", "_")
-                st.rerun()
                 st.rerun()
         st.info("👋 This is a multi-user system. Your data is isolated by your Session ID.")
         return
@@ -182,10 +182,23 @@ def main():
     # Semantic Policy Settings
     st.sidebar.divider()
     st.sidebar.subheader("🏷️ Semantic Weights")
+
+    # Smart B-Roll Toggle (New)
+    enable_broll = st.sidebar.checkbox(
+        "Enable Smart B-Roll (Generative AI)", config.get("b_roll", {}).get("enabled", False),
+        help="Automatically generates AI images for high-scoring visual moments in your video."
+    )
+
+    # Logic: B-Roll requires LLM
+    llm_default = config.get("semantic_policy", {}).get("enabled", False)
+    if enable_broll:
+        llm_default = True
+        st.sidebar.info("🧠 LLM Labeling auto-enabled for B-Roll analysis.")
     
     enable_llm = st.sidebar.checkbox(
-        "Enable LLM Labeling", config.get("semantic_policy", {}).get("enabled", False),
-        help="**Uncheck (Default)**: Creates a fast 'Master Cut' based on motion/faces only.\n**Check**: Uses AI to categorize clips (Product vs Funny), but takes longer."
+        "Enable LLM Labeling", llm_default,
+        disabled=enable_broll, # Lock if B-Roll is on
+        help="**Uncheck (Default)**: Creates a fast 'Master Cut' based on motion/faces only.\n**Check**: Uses AI to categorize clips (Product vs Funny) and analyze Visual Potential."
     )
     
     s_product = st.sidebar.slider(
@@ -227,6 +240,9 @@ def main():
         if "semantic_policy" not in config: config["semantic_policy"] = {}
         config["semantic_policy"]["enabled"] = enable_llm
         config["semantic_policy"]["weights"] = {"product_related": s_product, "funny": s_funny, "general": s_general}
+
+        if "b_roll" not in config: config["b_roll"] = {}
+        config["b_roll"]["enabled"] = enable_broll
         
         config["self_learning"] = self_learning
 
@@ -267,14 +283,32 @@ def main():
             st.subheader("🎞️ The Master Cut")
             st.markdown("**This is your complete video.** It contains all the kept clips (Product + Funny + General) in temporal order.")
             
-            # Standardized Master Video Path
-            master_path = os.path.join(OUTPUT_VIDEOS_DIR, "final_output_master_raw.mp4")
+            # Standardized Master Video Path (Prefer Smart B-Roll version)
+            smart_path = os.path.join(OUTPUT_VIDEOS_DIR, "final_video_smart.mp4")
+            raw_path = os.path.join(OUTPUT_VIDEOS_DIR, "final_output_master_raw.mp4")
+            
+            final_path = smart_path if os.path.exists(smart_path) else raw_path
 
-            if os.path.exists(master_path):
-                st.success(f"📦 Master Video Ready ({os.path.getsize(master_path) / (1024*1024):.1f} MB)")
-                st.video(master_path)
-                with open(master_path, "rb") as f:
-                     st.download_button("⬇️ Download Master Video", f, file_name="final_output_master_raw.mp4", key="dl_master")
+            if os.path.exists(final_path):
+                st.success(f"📦 Master Video Ready ({os.path.getsize(final_path) / (1024*1024):.1f} MB)")
+                
+                # Layout: Video | Thumbnail
+                col_vid, col_thumb = st.columns([2, 1])
+                
+                with col_vid:
+                    st.video(final_path)
+                    with open(final_path, "rb") as f:
+                         st.download_button("⬇️ Download Video", f, file_name=os.path.basename(final_path), key=f"dl_master_{base_name}")
+
+                with col_thumb:
+                    thumb_path = os.path.join(OUTPUT_VIDEOS_DIR, "thumbnail.png")
+                    if os.path.exists(thumb_path):
+                    if os.path.exists(thumb_path):
+                        st.image(thumb_path, caption="🎨 Generated YouTube Thumbnail", width="stretch") # Updated API
+                        with open(thumb_path, "rb") as f:
+                             st.download_button("⬇️ Download Thumbnail", f, file_name="thumbnail.png", mime="image/png", key=f"dl_thumb_{base_name}")
+                    else:
+                        st.info("Generating thumbnail... (If enabled)")
             else:
                 st.info("Master video not generated yet.")
 
@@ -288,11 +322,13 @@ def main():
     # Check for chunks in input_clips (not yet started) OR processing (in progress)
     segments_in_input = []
     if os.path.exists(INPUT_CLIPS_DIR):
-        segments_in_input = [f for f in os.listdir(INPUT_CLIPS_DIR) if f.startswith("segment_") and f.endswith(".mp4")]
+        segments_in_input = [f for f in os.listdir(INPUT_CLIPS_DIR) if f.endswith(".mp4")]
         
     chunks_in_processing = []
     if os.path.exists(PROCESSING_DIR):
-        chunks_in_processing = [f for f in os.listdir(PROCESSING_DIR) if f.startswith("segment_") and os.path.isdir(os.path.join(PROCESSING_DIR, f))]
+        # Scan for ANY subdirectory that might contain chunks (e.g. video name folders)
+        # Exclude 'b_roll' or other artifacts folder if possible, but generally any folder suggests work in progress
+        chunks_in_processing = [f for f in os.listdir(PROCESSING_DIR) if os.path.isdir(os.path.join(PROCESSING_DIR, f)) and f != "b_roll"]
 
     total_units_found = len(segments_in_input) + len(chunks_in_processing)
 
@@ -302,171 +338,127 @@ def main():
         col1, col2 = st.columns([1, 2])
         with col1:
              if st.button("▶️ Resume Processing", type="primary"):
-                st.divider()
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                with st.status("🚀 Resuming Pipeline...", expanded=True) as status:
-                    context = {"step_count": 0, "total_steps": total_units_found * 7}
-                    
-                    log_container = st.container(height=400)
-                    
-                    def ui_logger(message):
-                        allowed_emojis = ["🚀", "✂️", "🏃", "🗣️", "👤", "🔒", "🕵️", "🎞️", "✨", "📥", "❌", "🛑", "⏩"]
-                        is_headline = any(e in message for e in allowed_emojis)
-                        is_success = "✅" in message
-                        is_moved = "Moved" in message
-                        is_noise = any(x in message for x in ["->", "Loading", "Scanning", "Using cache", "GL version"])
-                        
-                        if (is_headline or is_success or is_moved) and not is_noise:
-                            with log_container:
-                                st.write(message)
-                            
-                            if "✅" in message and "finished" in message:
-                                context["step_count"] += 1
-                                if context["total_steps"] > 0:
-                                    progress_bar.progress(min(context["step_count"] / context["total_steps"], 1.0))
-                            if is_headline and "finished" not in message:
-                                clean = message.strip().replace("=", "").strip()
-                                if clean: status.update(label=clean, state="running")
-
-                    # Run pipeline directly with USER_ID
-                    run_pipeline.main(logger_callback=ui_logger, user_id=user_id)
-                    status.update(label="✨ Resume Completed!", state="complete", expanded=False)
-                    progress_bar.progress(1.0)
-                    st.success("🎉 Resume Complete! Check output below.")
-                    
-                    # CALL MERGE HERE
-                    merge_and_display_result("resumed_output")
+                st.session_state["pipeline_active"] = True
+                st.session_state["pipeline_step"] = 0 # Resume usually implies ingest is done
+                st.session_state["pipeline_logs"] = ["🚀 Resuming Pipeline..."]
+                st.session_state["pipeline_stem"] = "resumed_video"
+                st.rerun()
         
         with col2:
             if st.button("🗑️ Clear & Start New"):
-                # Clear input segments
                 for c in segments_in_input:
                     try: os.remove(os.path.join(INPUT_CLIPS_DIR, c))
-
                     except: pass
-                # Clear processing chunks - AND OUTPUTS
                 for c in chunks_in_processing:
                     try: shutil.rmtree(os.path.join(PROCESSING_DIR, c))
                     except: pass
                 
-                # Also clear state for this user?
-                # state_manager.get_manager(user_id).clear_state()? 
-                # Currently state is file based in data/state_{user}.json. We should delete that too?
                 state_file = os.path.join(BASE_DIR, "data", f"state_{user_id}.json")
                 if os.path.exists(state_file):
                     os.remove(state_file)
                 st.rerun()
-
+    
     # --- PERSISTENT REVIEW DASHBOARD ---
     if os.path.exists(FINAL_OUTPUT_DIR):
         merge_and_display_result("latest_run")
     # -----------------------------------
-                
-    uploaded_file = st.file_uploader("Upload a Video (.mp4)", type=["mp4"])
+    
+    uploaded_file = None
+    if total_units_found == 0:
+        uploaded_file = st.file_uploader("Upload a Video (.mp4)", type=["mp4"])
     
     if uploaded_file is not None:
-        # Save uploaded file to input_clips
         file_path = os.path.join(INPUT_CLIPS_DIR, uploaded_file.name)
         with open(file_path, "wb") as f:
              while True:
-                 chunk = uploaded_file.read(4 * 1024 * 1024) # 4MB chunks
-                 if not chunk:
-                     break
+                 chunk = uploaded_file.read(4 * 1024 * 1024)
+                 if not chunk: break
                  f.write(chunk)
         st.success(f"✅ Uploaded to workspace ({user_id}): {uploaded_file.name}")
         
         if st.button("🚀 Run AI Pipeline"):
-            st.divider()
+             # FORCE RESET STATE on new run
+             state_file = os.path.join(BASE_DIR, "data", f"state_{user_id}.json")
+             if os.path.exists(state_file):
+                 try: os.remove(state_file)
+                 except: pass
+
+             st.session_state["pipeline_active"] = True
+             st.session_state["pipeline_step"] = -1
+             st.session_state["pipeline_logs"] = ["🚀 Starting New Run..."]
+             st.session_state["pipeline_stem"] = os.path.splitext(uploaded_file.name)[0]
+             st.rerun()
+
+    # ==========================================
+    # 🚀 SHARED PIPELINE RUNNER (State Machine)
+    # ==========================================
+    if st.session_state.get("pipeline_active", False):
+        st.divider()
+        st.subheader("⚙️ Processing Engine")
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        col_stop, _ = st.columns([1, 4])
+        with col_stop:
+            if st.button("🛑 STOP PIPELINE", type="primary"):
+                st.session_state["pipeline_active"] = False
+                st.session_state["pipeline_logs"].append("🛑 Pipeline Stopped by User.")
+                st.error("🛑 Pipeline Stopped.")
+                st.stop()
+        
+        with st.container(height=400):
+            for log in st.session_state.get("pipeline_logs", []):
+                st.write(log)
+        
+        def add_log(msg):
+            st.session_state["pipeline_logs"].append(msg)
+            print(msg)
+
+        current_step = st.session_state.get("pipeline_step", 0)
+        steps = run_pipeline.STEPS
+        
+        # STEP -1: SPLITTING
+        if current_step == -1:
+            add_log("🔪 Step 1: Ingest...")
+            run_pipeline.ingest_files(logger_callback=None)
+            st.session_state["pipeline_step"] = 0
+            st.rerun()
+
+        # STEPS 0...N
+        elif 0 <= current_step < len(steps):
+            step_name, step_script = steps[current_step]
             
-            # Progress bar
-            progress_bar = st.progress(0)
-            status_text = st.empty()
+            progress = current_step / len(steps)
+            progress_bar.progress(progress)
+            status_text.text(f"Running: {step_name}")
             
-            # Use a container for the logs
-            with st.status("🚀 Processing...", expanded=True) as status:
-                
-                # Callback to update UI logs
-                context = {"step_count": 0, "total_steps": 1} # Dynamic
-                
-                def ui_logger(message):
-                    # Strict Filter: Only allow Headlines and Important Code Blocks
-                    allowed_emojis = ["🚀", "✂️", "🏃", "🗣️", "👤", "🔒", "🕵️", "🎞️", "✨", "📥", "❌", "🛑", "⏩"]
-                    
-                    is_headline = any(e in message for e in allowed_emojis)
-                    is_success = "✅" in message
-                    is_moved = "Moved" in message and "files" in message
-                    
-                    # Exclude specific noisy patterns
-                    is_noise = any(x in message for x in ["->", "Loading", "Scanning", "Analyzing", "Using cache", "GL version", "TensorFlow"])
-                    
-                    if (is_headline or is_success or is_moved) and not is_noise:
-                        st.write(message) 
-                        
-                        if "✅" in message and "finished" in message:
-                            context["step_count"] += 1
-                            if context["total_steps"] > 0:
-                                progress = min(context["step_count"] / context["total_steps"], 1.0)
-                                progress_bar.progress(progress)
-                        
-                        if is_headline and "finished" not in message:
-                            clean_label = message.strip().replace("=", "").strip()
-                            if clean_label:
-                                status.update(label=clean_label, state="running")
-
-                # --- STEP 1: SPLIT INTO CHUNKS (5 Minutes) ---
-                st.write("🔪 Splitting into 5-minute chunks for stability...")
-                
-                # Temp dir for chunks
-                chunk_output_pattern = os.path.join(INPUT_CLIPS_DIR, "segment_%04d.mp4")
-
-
-                
-                # FFmpeg Split Command
-                cmd = [
-                    "ffmpeg", "-y", "-i", file_path, 
-                    "-c", "copy", "-map", "0", 
-                    "-f", "segment", "-segment_time", "300", 
-                    "-reset_timestamps", "1", 
-                    chunk_output_pattern
-                ]
-                
-                try:
-                    subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    st.write("✅ Splitting complete.")
-                except subprocess.CalledProcessError as e:
-                    st.error(f"❌ Splitting failed: {e}")
-                    status.update(label="❌ Stopped", state="error")
-                    return
-
-                # Remove original large file
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-
-                # Count segments
-                segments = [f for f in os.listdir(INPUT_CLIPS_DIR) if f.startswith("segment_") and f.endswith(".mp4")]
-                segments.sort()
-                
-                if not segments:
-                    st.error("❌ No segments created.")
-                    return
-                
-                st.write(f"📦 Found {len(segments)} segments to process.")
-                context["total_steps"] = len(segments) * 7 
-                
-                # --- STEP 2: RUN PIPELINE ON CHUNKS ---
-                # Pass User ID here!
-                run_pipeline.main(logger_callback=ui_logger, user_id=user_id)
-                
-                # Finalize
-                status.update(label="✨ Pipeline Completed!", state="complete", expanded=False)
-                progress_bar.progress(1.0)
+            add_log(f"▶️  Running: {step_name}")
             
-            st.success("🎉 Processing Complete!")
+            success = run_pipeline.run_step(step_name, step_script, logger_callback=add_log)
             
-            # CALL MERGE HERE
-            file_stem = os.path.splitext(uploaded_file.name)[0]
-            merge_and_display_result(file_stem)
+            if not success:
+               add_log(f"❌ Failed at {step_name}")
+               st.session_state["pipeline_active"] = False
+               st.error(f"Pipeline failed at {step_name}")
+               # st.stop() # Allow viewing logs
+            
+            st.session_state["pipeline_step"] += 1
+            st.rerun()
+            
+        # DONE
+        elif current_step >= len(steps):
+            progress_bar.progress(1.0)
+            status_text.text("✨ Complete!")
+            st.balloons()
+            st.success("🎉 Pipeline Finished Successfully!")
+            
+            stem = st.session_state.get("pipeline_stem", "video")
+            merge_and_display_result(stem)
+            
+            if st.button("✅ Done (Reset View)"):
+                st.session_state["pipeline_active"] = False
+                st.rerun()
 
 if __name__ == "__main__":
     main()

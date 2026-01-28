@@ -40,12 +40,16 @@
         "borderline": 0.30
     },
     "semantic_policy": {
+        "enabled": true,
         "weights": {
             "product_related": 1.0,
             "funny": 1.0,
             "general": 0.9
         },
         "default_weight": 0.5
+    },
+    "b_roll": {
+        "enabled": true
     },
     "semantic_model": {
         "provider": "together",
